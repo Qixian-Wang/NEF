@@ -1,15 +1,16 @@
+import os
+from dataclasses import dataclass
+
 import numpy as np
 import matplotlib.pyplot as plt
-import os
 import pandas as pd
+import scipy.special as sps
 
-from scipy.special import gamma
 from miv.core.operator import Operator, DataLoader
 from miv.core.pipeline import Pipeline
 from miv.io.openephys import Data, DataManager
 from miv.signal.filter import ButterBandpass, MedianFilter
 from miv.signal.spike import ThresholdCutoff
-from dataclasses import dataclass
 from miv.core.operator import OperatorMixin
 from miv.core.operator.wrapper import cache_call
 
@@ -27,56 +28,69 @@ spike_detection: Operator = ThresholdCutoff(cutoff=4.0, dead_time=0.002, tag="sp
 
 data >> bandpass_filter >> spike_detection
 
+
+def _adaptive_bandwidth(spike_times, time, a, b):
+    N = len(spike_times)
+    sumnum = 0
+    sumdenum = 0
+    # Calculate the adaptive bandwidth h
+    for i in range(N):
+        basicterm = (((time - spike_times[i]) ** 2) / 2 + 1 / b)
+        numerator = basicterm ** -a
+        denumerator = basicterm ** -(a + 0.5)
+        sumnum += numerator
+        sumdenum += denumerator
+
+    bandwidth = (sps.gamma(a) / sps.gamma(a + 0.5)) * (sumnum / sumdenum)
+    return bandwidth, N
+
+# BAKS Estimate the firing rate
+def _baysian___(spike_times, time, bandwidth, N):
+    firing_rate = 0
+    for j in range(N):
+        power = (1 / (np.sqrt(2 * np.pi) * bandwidth)) * np.exp(-((time - spike_times[j]) ** 2) / (2 * bandwidth ** 2))
+        firing_rate += power
+
+    return firing_rate
+
+
 @dataclass
 class BAKSFiringRate(OperatorMixin):
-    tag = "BAKS firing rate"
+    """
+    baks = BAKSFiringRate(name_param1=0.32)
+    """
+    name_param1: float = 0.32
+    name_param2: float = (4. / 5.)
+
+    tag: str = "BAKS firing rate"
 
     def __post_init__(self):
         super().__init__()
-        self.firing_rate_list = []
-        self.bandwidth_list = []
-        self.endtime = 2000
+        self.firing_rate_list: list[float] = []
+        self.bandwidth_list: list[float] = []
+        self.endtime: float = 2000.
 
-    # Call: important algorithmic steps
     @cache_call
-    def __call__(self, spike_detection):
+    def __call__(self, spike_detection) -> list[float]:
 
-        def adaptive_bandwidth(spike_times, time, a, b):
-            N = len(spike_times)
-            sumnum = 0
-            sumdenum = 0
-            # Calculate the adaptive bandwidth h
-            for i in range(N):
-                basicterm = (((time - spike_times[i]) ** 2) / 2 + 1 / b)
-                numerator = basicterm ** -a
-                denumerator = basicterm ** -(a + 0.5)
-                sumnum += numerator
-                sumdenum += denumerator
+        spikestamp.number_of_channels
 
-            bandwidth = (gamma(a) / gamma(a + 0.5)) * (sumnum / sumdenum)
-            return bandwidth, N
-
-        # BAKS Estimate the firing rate
-        def BAKS(spike_times, time, bandwidth, N):
-            firing_rate = 0
-            for j in range(N):
-                K = (1 / (np.sqrt(2 * np.pi) * bandwidth)) * np.exp(-((time - spike_times[j]) ** 2) / (2 * bandwidth ** 2))
-                firing_rate += K
-
-            return firing_rate
+        _adaptive_bandwidth(...)
 
         spike_times = spike_detection.output()
         spikestamps_view = spike_times.get_view(0, self.endtime)
         spikes_last_time = spike_times.get_last_spikestamp()
 
         # Firing rate for each channel
+        for spikstamp in spikestamps:
         for ch in range(0, len(spikestamps_view)):
             spikestamp = spikestamps_view[ch]
 
             # Calculate firing rate using BAKS function
-            spike_times_local = spikestamp - spikestamp[0]
-            a = 0.32
-            b = len(spikestamp) ** (4. / 5.)
+            spike_times_local = spikestamp - spikestamp.get_first_spikestamp()
+            a = self.name_param1
+            b_power = self.name_param2
+            b = len(spikestamp) ** b_power
 
             bandwidth, N = adaptive_bandwidth(spike_times_local, spikes_last_time[ch], a, b)
             firing_rate= BAKS(spike_times_local, spikes_last_time[ch], bandwidth, N)
@@ -98,6 +112,7 @@ class BAKSFiringRate(OperatorMixin):
         channel = [item[0] for item in output]
         rate = [item[1] for item in output]
 
+
         file_path = "results/spikes/firing_rate_histogram.csv"
         df = pd.read_csv(file_path)
 
@@ -113,7 +128,9 @@ class BAKSFiringRate(OperatorMixin):
         plt.xlabel('channels')
         plt.ylabel('firing rate')
         plt.legend()
-        plt.show()
+        file_name = os.path.join(self.analysis_path, ".png")
+        plt.savefig(file_name, dpi=300)
+        plt.close('all')
 
         # Calculate difference between Metric and BAKS
         MISE = 0
