@@ -1,0 +1,19 @@
+#!/bin/bash
+
+#SBATCH -J BAKS_mpi           # Job name
+#SBATCH -o BAKS_mpi.o%j       # Name of stdout output file
+#SBATCH -e BAKS_mpi.e%j       # Name of stderr error file
+
+#SBATCH -p development          # Queue (partition) name
+#SBATCH -N 16               # Total # of nodes
+#SBATCH -n 256              # Total # of mpi tasks
+#SBATCH -t 00:20:00        # Run time (hh:mm:ss)
+#SBATCH --mail-type=all    # Send email at begin and end of job
+#SBATCH -A IBN22011       # Project/Allocation name (req'd if you have more than 1)
+#SBATCH --mail-user=qixianw2@illinois.edu
+
+module list
+pwd
+date
+
+ibrun python3 /home1/10197/qxwang/BAKS_test/BAKS_mpi.py
