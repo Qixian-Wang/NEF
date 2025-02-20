@@ -11,7 +11,7 @@ writer = SummaryWriter(log_dir="runs/experiment1")
 
 def gaussian_fit_loss(data, mean, rho):
     sigma = torch.log(1 + torch.exp(rho))
-    nll = 0.5 * ((data.T - mean) ** 2 / sigma ** 2) + torch.log(sigma)
+    nll = 0.5 * ((data - mean) ** 2 / sigma ** 2) + torch.log(sigma)
     return torch.mean(nll)
 
 
@@ -30,13 +30,13 @@ def batch_iterator(x):
 
     def _iterator(batch_size):
         sample_indices = np.random.randint(0, high=n_samples, size=batch_size)
-        return x[sample_indices]
+        return x[sample_indices, :]
 
     return _iterator
 
 
 class CombinedModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim=2048, latent_dim=1):
+    def __init__(self, input_dim, hidden_dim=2048, latent_dim=4):
         super().__init__()
 
         self.encoder = nn.Sequential(
@@ -82,11 +82,11 @@ def train_combined_model(
         lr=1e-4
 ):
     n_train_data = 5000
-    batch_size = 256
+    batch_size = 512
     train_data = generate_data(n_train_data)
     train_iterator = batch_iterator(train_data)
 
-    model = CombinedModel(input_dim=batch_size)
+    model = CombinedModel(input_dim=4)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     pretrain_loss = []
@@ -96,7 +96,7 @@ def train_combined_model(
         for epoch in range(n_pretrain_epochs):
             batch_data = train_iterator(batch_size)
             batch_data_torch = torch.tensor(batch_data, dtype=torch.float32)
-            mu, log_var = model(batch_data_torch.T, pretrain=True)
+            mu, log_var = model(batch_data_torch, pretrain=True)
 
             mle = gaussian_fit_loss(batch_data_torch, mu, log_var)
             kld = 0.5 * torch.mean(mu.pow(2) + log_var.exp() - 1.0 - log_var)
@@ -137,14 +137,14 @@ def train_combined_model(
     return train_data, losses, pretrain_loss
 
 train_data, loss_pretrain, pretrain_loss = train_combined_model(pretrain=True)
-
-fig, ax = plt.subplots(1, 1, figsize=(12, 4))
-
-ax[0].semilogy(pretrain_loss, label="Loss with pretrain")
-ax[0].set_xlabel("Update steps")
-ax[0].set_ylabel("Loss")
-ax[0].set_title("Training Loss (Pretrain)")
-ax[0].grid(True)
-ax[0].legend()
-
-plt.savefig(f"compare.png", format="png")
+#
+# fig, ax = plt.subplots(1, 1, figsize=(12, 4))
+#
+# ax[0].semilogy(pretrain_loss, label="Loss with pretrain")
+# ax[0].set_xlabel("Update steps")
+# ax[0].set_ylabel("Loss")
+# ax[0].set_title("Training Loss (Pretrain)")
+# ax[0].grid(True)
+# ax[0].legend()
+#
+# plt.savefig(f"compare.png", format="png")
