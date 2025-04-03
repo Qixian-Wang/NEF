@@ -1,7 +1,9 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 
 class ReservoirComputing:
     def __init__(self, config):
@@ -13,7 +15,6 @@ class ReservoirComputing:
         self.sparsity = config.sparsity[0]
         self.spectral_radius = config.spectral_radius[0]
         self.rls_init = int(config.rls_init[0])
-        self.beta = config.beta
         self.num_hidden = config.num_hidden
         self.device = config.device
 
@@ -30,7 +31,8 @@ class ReservoirComputing:
             rho_A = torch.max(torch.abs(eigvals)).item()
         Wrec *= (self.spectral_radius / max(rho_A,1e-8))
         self.Wrec = Wrec.to(self.device)
-        self.W_out = torch.zeros((self.n_classes, self.num_neuron)).to(self.device)
+        self.W_out = torch.FloatTensor(self.n_classes, self.num_neuron).uniform_(-1, 1).to(self.device)
+
         self.P_rls = torch.stack([torch.eye(self.num_neuron, device=self.device)*self.rls_init for _ in range(self.n_classes)])
 
     def rc_forward(self, x_seq):
@@ -113,9 +115,8 @@ class VAE_RC(nn.Module):
         state_history = self.rc.rc_forward(z)
 
         with torch.no_grad():
-             self.rc.update_readout_RLS(state_history, label, mode)
-
-        prediction = self.rc.predict_class(state_history)
+            self.rc.update_readout_RLS(state_history, label, mode)
+            prediction = self.rc.predict_class(state_history)
 
         return encoded, mu, log_var, z, decoded, prediction
 
@@ -138,6 +139,8 @@ def batch_generate(dataset, batch_size, mode):
 
 
 def train_combined(model, train_dataset, config):
+    log_dir = os.path.join("runs", config.experiment_name)
+    writer = SummaryWriter(log_dir=log_dir)
     optimizer = optim.Adam(model.parameters(), lr=config.VAE_learning_rate)
 
     for epoch in range(config.num_epoch):
@@ -156,12 +159,12 @@ def train_combined(model, train_dataset, config):
 
             recon_loss = F.mse_loss(decoded, data)
             kld_loss = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
-            vae_loss_batch = recon_loss + 1 * kld_loss
+            vae_loss_batch = 10 * recon_loss + 0.01 * kld_loss
 
             RC_loss_batch = F.cross_entropy(prediction, label.argmax(dim=1))
             _, result = prediction.max(dim=1)
 
-            total_loss_batch = vae_loss_batch + config.rc_loss_weight * RC_loss_batch
+            total_loss_batch = vae_loss_batch #+ config.rc_loss_weight * RC_loss_batch
 
             optimizer.zero_grad()
             total_loss_batch.backward()
@@ -179,6 +182,13 @@ def train_combined(model, train_dataset, config):
         # if epoch % 10 == 0:
         #     show_reconstructions(model, data, label)
 
+        writer.add_scalar("Loss/Total", total_loss, epoch)
+        writer.add_scalar("Loss/VAE", vae_loss.item(), epoch)
+        writer.add_scalar("Loss/Reconstruction", recon_loss_total.item(), epoch)
+        writer.add_scalar("Loss/KLD", kld_loss_total.item(), epoch)
+        writer.add_scalar("Loss/RC", RC_loss.item(), epoch)
+        writer.add_scalar("Accuracy/train", correct_predict / total, epoch)
+
         print('*' * 10)
         print(f"Epoch {epoch}")
         print(f"accuracy: {correct_predict}/{total}")
@@ -187,6 +197,12 @@ def train_combined(model, train_dataset, config):
         print(f"Reconstruction Loss: {recon_loss_total:.4f}")
         print(f"KLD Loss: {kld_loss_total:.4f}")
         print(f"RC Loss: {RC_loss:.4f}")
+
+    writer.close()
+    # for name, param in model.vae.named_parameters():
+    #     if param.grad is not None:
+    #         print(f"{name} grad: {param.grad.norm():.6f}")
+
     return model
 
 def test_combined(model, test_dataset, config):

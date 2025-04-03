@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import RidgeCV
 
 
 class ReservoirComputing:
@@ -12,7 +12,7 @@ class ReservoirComputing:
         self.sparsity = config.sparsity[0]
         self.spectral_radius = config.spectral_radius[0]
         self.rls_init = int(config.rls_init[0])
-        self.beta = config.beta
+        self.alphas = config.alphas
 
         self.Win = torch.FloatTensor(self.num_neuron, self.input_dim_ridge).uniform_(-self.sigma, self.sigma)
 
@@ -41,8 +41,9 @@ class ReservoirComputing:
             state = torch.tanh(self.Wrec @ state.reshape(-1, 1) + update_in)
             state_history[fig, :] = state.squeeze(1)
 
-        self.model = Ridge(alpha=self.beta, fit_intercept=False)
+        self.model = RidgeCV(alphas=self.alphas, fit_intercept=True)
         self.model.fit(state_history, label)
+
 
     def test(self, data):
         size, fig_dim = data.shape

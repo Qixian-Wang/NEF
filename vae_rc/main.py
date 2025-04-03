@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 from model_method2 import VAE_RC, train_combined, test_combined
 from model_method1 import VAE_regression, train_regression, test_regression
-from model_basic import train_basic_pca, test_basic_pca
+from model_basic1 import train_basic_pca, test_basic_pca
 from model_basic2 import train_rc, test_rc
 from dataloader import data_generator
 from config_file import Config as Configs
@@ -15,12 +15,7 @@ torch.manual_seed(seed)
 
 configs = Configs()
 
-train_dataset, test_dataset = data_generator(configs, subset=False)
-
-iteration = 5
-dt = 0.02
-loss1 = []
-loss2 = []
+train_dataset, test_dataset = data_generator(configs, subset=True)
 
 def run(method):
     start_time = time.time()
@@ -47,5 +42,5 @@ def run(method):
     total_time = end_time - start_time
     print(f"time usage: {total_time}s")
 
-run(method="Basic1")
+run(method="Method2")
 
