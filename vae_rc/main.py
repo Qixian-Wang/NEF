@@ -1,46 +1,46 @@
 from datetime import datetime
 import torch
 import matplotlib.pyplot as plt
+import numpy as np
 
+from method_base import MethodBase
 from model_method2 import VAE_RC, train_combined, test_combined
 from model_method1 import VAE_regression, train_regression, test_regression
-from model_basic1 import train_basic_pca, test_basic_pca
-from model_basic2 import train_rc, test_rc
-from dataloader import data_generator
-from config_file import Config as Configs
+from method_pca import MethodPCA
+from method_naiverc import NaiveRC
+from dataloader import DatasetMNIST, data_generator
+from config_file import Configs
 import time
 
-seed = 42
-torch.manual_seed(seed)
 
-configs = Configs()
-
-train_dataset, test_dataset = data_generator(configs, subset=True)
-
-def run(method):
+def main(dataset: DatasetMNIST, method: MethodBase, seed: int | None = None) -> None:
     start_time = time.time()
+    train_accuracy = method.train(dataset, seed)
+    print(f"training duration: {time.time() - start_time:.2f}s")
+    print(f"Train Accuracy: {train_accuracy * 100:.2f}%")
 
-    if method == "Basic1":
-        model, matrix = train_basic_pca(train_dataset, configs)
-        test_basic_pca(model, matrix, test_dataset)
+    start_time = time.time()
+    test_accuracy = method.test(dataset, seed)
+    print(f"test duration: {time.time() - start_time:.2f}s")
+    print(f"Final Test Accuracy: {test_accuracy * 100:.2f}%")
 
-    if method == "Basic2":
-        model = train_rc(train_dataset, configs)
-        test_rc(model, test_dataset)
+    # elif method == "Method1":
+    #     model = VAE_regression(configs).to(configs.device)
+    #     train_regression(model, train_dataset, configs)
+    #     test_regression(model, test_dataset, configs)
+    #
+    # elif method == "Method2":
+    #     model = VAE_RC(configs).to(configs.device)
+    #     train_combined(model, train_dataset, configs)
+    #     test_combined(model, test_dataset, configs)
 
-    if method == "Method1":
-        model = VAE_regression(configs).to(configs.device)
-        train_regression(model, train_dataset, configs)
-        test_regression(model, test_dataset, configs)
 
-    if method == "Method2":
-        model = VAE_RC(configs).to(configs.device)
-        train_combined(model, train_dataset, configs)
-        test_combined(model, test_dataset, configs)
+if __name__ == "__main__":
+    seed = 42
+    torch.manual_seed(seed)
 
-    end_time = time.time()
-    total_time = end_time - start_time
-    print(f"time usage: {total_time}s")
+    configs = Configs()
+    dataset = data_generator(configs)
+    method = NaiveRC(configs)
 
-run(method="Method2")
-
+    main(dataset, method=method, seed=seed)

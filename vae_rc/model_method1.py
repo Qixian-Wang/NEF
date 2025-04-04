@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+
 class Regression:
     def __init__(self, config, n_classes=10, rls_init=1e2):
 
@@ -11,7 +12,12 @@ class Regression:
         self.device = config.device
 
         self.W_out = torch.zeros((n_classes, self.latent_dim)).to(self.device)
-        self.P_rls = torch.stack([torch.eye(self.latent_dim, device=self.device) * rls_init for _ in range(n_classes)])
+        self.P_rls = torch.stack(
+            [
+                torch.eye(self.latent_dim, device=self.device) * rls_init
+                for _ in range(n_classes)
+            ]
+        )
 
     def regression_forward(self, x_seq):
         preds = x_seq @ self.W_out.T
@@ -35,7 +41,9 @@ class Regression:
                 # update W_out: (n_classes, latent_dim)
                 self.W_out -= e.unsqueeze(1) * k_vec
 
-                update_term = k_vec.unsqueeze(2) * P_x.unsqueeze(1)  # shape: (n_classes, flat_dim, flat_dim)
+                update_term = k_vec.unsqueeze(2) * P_x.unsqueeze(
+                    1
+                )  # shape: (n_classes, flat_dim, flat_dim)
                 self.P_rls = self.P_rls - update_term
 
 
@@ -56,7 +64,7 @@ class VAE(nn.Module):
         self.decoder = nn.Sequential(
             nn.Linear(self.num_hidden, int(self.data_length / 2)),
             nn.ReLU(),
-            nn.Linear(int(self.data_length / 2), self.data_length)
+            nn.Linear(int(self.data_length / 2), self.data_length),
         )
 
     def reparameterize(self, mu, log_var):
@@ -100,7 +108,7 @@ def batch_generate(dataset, batch_size, mode):
     num_samples = data.shape[0]
     indices = torch.randperm(num_samples)
     for i in range(0, num_samples, batch_size):
-        batch_indices = indices[i:i + batch_size]
+        batch_indices = indices[i : i + batch_size]
         batch_data = data[batch_indices]
         batch_label = label[batch_indices]
         yield batch_data, batch_label
@@ -118,11 +126,15 @@ def train_regression(model, train_dataset, config):
         kld_loss_total = 0
         total = 0
 
-        for batch_idx, (data, label) in enumerate(batch_generate(train_dataset, config.batch_size, mode="train")):
+        for batch_idx, (data, label) in enumerate(
+            batch_generate(train_dataset, config.batch_size, mode="train")
+        ):
 
             data = torch.from_numpy(data).to(config.device)
             label = torch.from_numpy(label).to(config.device)
-            encoded, mu, log_var, z, decoded, prediction = model(data, label, mode="train")
+            encoded, mu, log_var, z, decoded, prediction = model(
+                data, label, mode="train"
+            )
 
             recon_loss = F.mse_loss(decoded, data)
             kld_loss = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
@@ -158,15 +170,20 @@ def train_regression(model, train_dataset, config):
         print(f"RC Loss: {RC_loss:.4f}")
     return model
 
+
 def test_regression(model, test_dataset, config):
     model.eval()
     with torch.no_grad():
         correct_predict = 0
         total_samples = 0
-        for batch_idx, (data, label) in enumerate(batch_generate(test_dataset, config.batch_size, mode="test")):
+        for batch_idx, (data, label) in enumerate(
+            batch_generate(test_dataset, config.batch_size, mode="test")
+        ):
             data = torch.from_numpy(data).to(config.device)
             label = torch.from_numpy(label).to(config.device)
-            encoded, mu, log_var, z, decoded, prediction = model(data, label, mode="test")
+            encoded, mu, log_var, z, decoded, prediction = model(
+                data, label, mode="test"
+            )
             _, pred_label = prediction.max(dim=1)
 
             correct_predict += (pred_label == label).sum().item()
@@ -184,17 +201,16 @@ def show_reconstructions(model, X, label, num_images=8, epoch=0):
     reconstructions = decoded.view(-1, 28, 28).cpu().numpy()
 
     import matplotlib.pyplot as plt
+
     fig, axs = plt.subplots(2, num_images, figsize=(num_images * 2, 4))
     for i in range(num_images):
-        axs[0, i].imshow(originals[i], cmap='gray')
+        axs[0, i].imshow(originals[i], cmap="gray")
         axs[0, i].axis("off")
         axs[0, i].set_title("Original")
 
-        axs[1, i].imshow(reconstructions[i], cmap='gray')
+        axs[1, i].imshow(reconstructions[i], cmap="gray")
         axs[1, i].axis("off")
         axs[1, i].set_title("Reconstruction")
 
     plt.tight_layout()
     plt.show()
-
-

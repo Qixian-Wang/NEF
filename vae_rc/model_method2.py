@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
+
 class ReservoirComputing:
     def __init__(self, config):
 
@@ -18,10 +19,14 @@ class ReservoirComputing:
         self.num_hidden = config.num_hidden
         self.device = config.device
 
-        self.Win = torch.FloatTensor(self.num_neuron, self.input_dim_rnn).uniform_(-self.sigma, self.sigma).to(self.device)
+        self.Win = (
+            torch.FloatTensor(self.num_neuron, self.input_dim_rnn)
+            .uniform_(-self.sigma, self.sigma)
+            .to(self.device)
+        )
 
-        Wrec = (torch.rand(self.num_neuron, self.num_neuron) - 0.5)
-        mask = (torch.rand(self.num_neuron, self.num_neuron) < self.sparsity)
+        Wrec = torch.rand(self.num_neuron, self.num_neuron) - 0.5
+        mask = torch.rand(self.num_neuron, self.num_neuron) < self.sparsity
         Wrec[mask] = 0.0
 
         eigvals = torch.linalg.eigvals(Wrec)
@@ -29,11 +34,20 @@ class ReservoirComputing:
             rho_A = 1e-8
         else:
             rho_A = torch.max(torch.abs(eigvals)).item()
-        Wrec *= (self.spectral_radius / max(rho_A,1e-8))
+        Wrec *= self.spectral_radius / max(rho_A, 1e-8)
         self.Wrec = Wrec.to(self.device)
-        self.W_out = torch.FloatTensor(self.n_classes, self.num_neuron).uniform_(-1, 1).to(self.device)
+        self.W_out = (
+            torch.FloatTensor(self.n_classes, self.num_neuron)
+            .uniform_(-1, 1)
+            .to(self.device)
+        )
 
-        self.P_rls = torch.stack([torch.eye(self.num_neuron, device=self.device)*self.rls_init for _ in range(self.n_classes)])
+        self.P_rls = torch.stack(
+            [
+                torch.eye(self.num_neuron, device=self.device) * self.rls_init
+                for _ in range(self.n_classes)
+            ]
+        )
 
     def rc_forward(self, x_seq):
         size, fig_dim = x_seq.shape
@@ -55,15 +69,20 @@ class ReservoirComputing:
                 y_pred = torch.mv(self.W_out, x_flat)
                 e = y_pred - label_history[i].float()
 
-                P_x = torch.matmul(self.P_rls, x_flat.unsqueeze(1)).squeeze(2)  # shape: (n_classes, flat_dim)
+                P_x = torch.matmul(self.P_rls, x_flat.unsqueeze(1)).squeeze(
+                    2
+                )  # shape: (n_classes, flat_dim)
 
-                denom = 1.0 + torch.sum(x_flat.unsqueeze(0) * P_x, dim=1)  # shape: (n_classes,)
+                denom = 1.0 + torch.sum(
+                    x_flat.unsqueeze(0) * P_x, dim=1
+                )  # shape: (n_classes,)
                 k_vec = P_x / denom.unsqueeze(1)  # shape: (n_classes, flat_dim)
                 self.W_out = self.W_out - e.unsqueeze(1) * k_vec
 
-                update_term = k_vec.unsqueeze(2) * P_x.unsqueeze(1)  # shape: (n_classes, flat_dim, flat_dim)
+                update_term = k_vec.unsqueeze(2) * P_x.unsqueeze(
+                    1
+                )  # shape: (n_classes, flat_dim, flat_dim)
                 self.P_rls = self.P_rls - update_term
-
 
     def predict_class(self, state_history):
         logits_2d = state_history @ self.W_out.T
@@ -87,7 +106,7 @@ class VAE(nn.Module):
         self.decoder = nn.Sequential(
             nn.Linear(self.num_hidden, int(self.data_length / 2)),
             nn.ReLU(),
-            nn.Linear(int(self.data_length / 2), self.data_length)
+            nn.Linear(int(self.data_length / 2), self.data_length),
         )
 
     def reparameterize(self, mu, log_var):
@@ -132,7 +151,7 @@ def batch_generate(dataset, batch_size, mode):
     num_samples = data.shape[0]
     indices = torch.randperm(num_samples)
     for i in range(0, num_samples, batch_size):
-        batch_indices = indices[i:i + batch_size]
+        batch_indices = indices[i : i + batch_size]
         batch_data = data[batch_indices]
         batch_label = label[batch_indices]
         yield batch_data, batch_label
@@ -152,10 +171,14 @@ def train_combined(model, train_dataset, config):
         kld_loss_total = 0
         total = 0
 
-        for batch_idx, (data, label) in enumerate(batch_generate(train_dataset, config.batch_size, mode="train")):
+        for batch_idx, (data, label) in enumerate(
+            batch_generate(train_dataset, config.batch_size, mode="train")
+        ):
             data = torch.from_numpy(data).to(config.device)
             label = torch.from_numpy(label).to(config.device)
-            encoded, mu, log_var, z, decoded, prediction = model(data, label, mode="train")
+            encoded, mu, log_var, z, decoded, prediction = model(
+                data, label, mode="train"
+            )
 
             recon_loss = F.mse_loss(decoded, data)
             kld_loss = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
@@ -164,7 +187,7 @@ def train_combined(model, train_dataset, config):
             RC_loss_batch = F.cross_entropy(prediction, label.argmax(dim=1))
             _, result = prediction.max(dim=1)
 
-            total_loss_batch = vae_loss_batch #+ config.rc_loss_weight * RC_loss_batch
+            total_loss_batch = vae_loss_batch  # + config.rc_loss_weight * RC_loss_batch
 
             optimizer.zero_grad()
             total_loss_batch.backward()
@@ -189,7 +212,7 @@ def train_combined(model, train_dataset, config):
         writer.add_scalar("Loss/RC", RC_loss.item(), epoch)
         writer.add_scalar("Accuracy/train", correct_predict / total, epoch)
 
-        print('*' * 10)
+        print("*" * 10)
         print(f"Epoch {epoch}")
         print(f"accuracy: {correct_predict}/{total}")
         print(f"Total Loss: {total_loss:.4f}")
@@ -205,15 +228,20 @@ def train_combined(model, train_dataset, config):
 
     return model
 
+
 def test_combined(model, test_dataset, config):
     model.eval()
     with torch.no_grad():
         correct_predict = 0
         total_samples = 0
-        for batch_idx, (data, label) in enumerate(batch_generate(test_dataset, config.batch_size, mode="test")):
+        for batch_idx, (data, label) in enumerate(
+            batch_generate(test_dataset, config.batch_size, mode="test")
+        ):
             data = torch.from_numpy(data).to(config.device)
             label = torch.from_numpy(label).to(config.device)
-            encoded, mu, log_var, z, decoded, prediction = model(data, label, mode="test")
+            encoded, mu, log_var, z, decoded, prediction = model(
+                data, label, mode="test"
+            )
             # logits = prediction[:, -1, :]
             _, pred_label = prediction.max(dim=1)
 
@@ -232,13 +260,14 @@ def show_reconstructions(model, X, label, num_images=8, epoch=0):
     reconstructions = decoded.view(-1, 28, 28).cpu().numpy()
 
     import matplotlib.pyplot as plt
+
     fig, axs = plt.subplots(2, num_images, figsize=(num_images * 2, 4))
     for i in range(num_images):
-        axs[0, i].imshow(originals[i], cmap='gray')
+        axs[0, i].imshow(originals[i], cmap="gray")
         axs[0, i].axis("off")
         axs[0, i].set_title("Original")
 
-        axs[1, i].imshow(reconstructions[i], cmap='gray')
+        axs[1, i].imshow(reconstructions[i], cmap="gray")
         axs[1, i].axis("off")
         axs[1, i].set_title("Reconstruction")
 
