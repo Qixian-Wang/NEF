@@ -4,25 +4,28 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from method_base import MethodBase
-from model_method2 import VAE_RC, train_combined, test_combined
-from model_method1 import VAE_regression, train_regression, test_regression
+from method_vae_rc import MethodVAERC
+from method_vae_ridge import MethodVAERegression
 from method_pca import MethodPCA
 from method_naiverc import NaiveRC
+
 from dataloader import DatasetMNIST, data_generator
 from config_file import Configs
 import time
 
 
-def main(dataset: DatasetMNIST, method: MethodBase, seed: int | None = None) -> None:
-    start_time = time.time()
-    train_accuracy = method.train(dataset, seed)
-    print(f"training duration: {time.time() - start_time:.2f}s")
-    print(f"Train Accuracy: {train_accuracy * 100:.2f}%")
+def main(epoch: int, dataset: DatasetMNIST, method: MethodBase, seed: int | None = None) -> None:
 
-    start_time = time.time()
-    test_accuracy = method.test(dataset, seed)
-    print(f"test duration: {time.time() - start_time:.2f}s")
-    print(f"Final Test Accuracy: {test_accuracy * 100:.2f}%")
+    for i in range(epoch):
+        start_time = time.time()
+        train_accuracy = method.train(dataset, seed)
+        print(f"training duration: {time.time() - start_time:.2f}s")
+        print(f"Train Accuracy: {train_accuracy * 100:.2f}%")
+
+        start_time = time.time()
+        test_accuracy = method.test(dataset, seed)
+        print(f"test duration: {time.time() - start_time:.2f}s")
+        print(f"Final Test Accuracy: {test_accuracy * 100:.2f}%")
 
     # elif method == "Method1":
     #     model = VAE_regression(configs).to(configs.device)
@@ -41,6 +44,6 @@ if __name__ == "__main__":
 
     configs = Configs()
     dataset = data_generator(configs)
-    method = NaiveRC(configs)
+    method = MethodVAERegression(configs)
 
-    main(dataset, method=method, seed=seed)
+    main(dataset=dataset, method=method, seed=seed, epoch=10)

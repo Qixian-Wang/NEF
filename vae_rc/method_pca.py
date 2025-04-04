@@ -19,12 +19,13 @@ class MethodPCA(MethodBase):
         self.ridge_model = RidgeCV(alphas=self.config.alphas, fit_intercept=False)
         self.ridge_model.fit(train_data_pca, dataset.y_train)
         y_pred = self.ridge_model.predict(train_data_pca)
+
         return accuracy_score(
             y_true=np.argmax(dataset.y_train, axis=1), y_pred=np.argmax(y_pred, axis=1)
         )
 
     def test(self, dataset, seed: int | None = None) -> float:
-
         X_pca = self.pca.transform(dataset.X_test)
         y_pred = self.ridge_model.predict(X_pca)
-        return accuracy_score(dataset.y_test, y_pred=np.argmax(y_pred, axis=1))
+
+        return accuracy_score(y_true=np.argmax(dataset.y_test, axis=1), y_pred=np.argmax(y_pred, axis=1))
