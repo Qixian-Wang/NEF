@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import accuracy_score
 import numpy as np
 
@@ -96,6 +95,7 @@ class MethodVAERC(MethodBase, nn.Module):
             y_true=np.argmax(label_list, axis=1), y_pred=np.array(result_list)
         )
         self.writer.add_scalar("Testing Accuracy", accuracy, epoch)
-
+        if epoch == self.config.num_epoch:
+            self.writer.close()
         # show_reconstructions(self, data, label)
         return accuracy

@@ -18,14 +18,14 @@ def main(
     epoch: int, dataset: DatasetMNIST, method: MethodBase, seed: int | None = None
 ) -> None:
 
-    for i in range(epoch):
+    for epoch_idx in range(epoch):
         start_time = time.time()
-        train_accuracy = method.train(i, dataset, seed)
+        train_accuracy = method.train(epoch_idx, dataset, seed)
         print(f"training duration: {time.time() - start_time:.2f}s")
         print(f"Train Accuracy: {train_accuracy * 100:.2f}%")
 
         start_time = time.time()
-        test_accuracy = method.test(i, dataset, seed)
+        test_accuracy = method.test(epoch_idx, dataset, seed)
         print(f"test duration: {time.time() - start_time:.2f}s")
         print(f"Final Test Accuracy: {test_accuracy * 100:.2f}%")
 
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     seed = 42
     torch.manual_seed(seed)
     dataset = data_generator(config_file.configs)
-    method = MethodVAERC(config_file.configs)
+    method = MethodVAERegression(config_file.configs)
 
     main(dataset=dataset, method=method, seed=seed, epoch=config_file.configs.num_epoch)
     config_file.configs.writer.close()

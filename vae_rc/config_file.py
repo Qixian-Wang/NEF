@@ -15,7 +15,7 @@ class Configs(BaseModel):
     # Parameters
     alphas: np.ndarray = np.linspace(1e-4, 10, 20)
     batch_size: int = 200
-    num_epoch: int = 15
+    num_epoch: int = 100
     data_length: int = 0
 
     # Param for PCA

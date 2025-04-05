@@ -20,6 +20,7 @@ class MethodVAERegression(MethodBase, nn.Module):
         self.optimizer = optim.Adam(
             self.vae.parameters(), lr=self.config.VAE_learning_rate
         )
+        self.writer = self.config.writer
         self.to(self.config.device)
 
     def forward(self, data, label, mode):
@@ -36,7 +37,9 @@ class MethodVAERegression(MethodBase, nn.Module):
         self.vae.train()
         result_list = []
         label_list = []
-
+        totoal_recon_loss = 0
+        totoal_kld_loss = 0
+        totoal_vae_loss = 0
         for batch_idx, (data, label) in enumerate(
             batch_generate(
                 dataset, self.config.batch_size, mode="train", config=self.config
@@ -60,16 +63,24 @@ class MethodVAERegression(MethodBase, nn.Module):
             total_loss_batch.backward()
             self.optimizer.step()
 
-        return accuracy_score(
+            totoal_recon_loss += recon_loss.item()
+            totoal_kld_loss += kld_loss.item()
+            totoal_vae_loss += vae_loss_batch.item()
+
+        accuracy = accuracy_score(
             y_true=np.argmax(label_list, axis=1), y_pred=np.array(result_list)
         )
+        self.writer.add_scalar("Reconstruction_loss", totoal_recon_loss, epoch)
+        self.writer.add_scalar("KLD_loss", totoal_kld_loss, epoch)
+        self.writer.add_scalar("VAE_loss_sum", totoal_vae_loss, epoch)
+        self.writer.add_scalar("Training Accuracy", accuracy, epoch)
+
+        return accuracy
 
     def test(self, epoch, dataset, seed: int | None = None):
         self.vae.eval()
         result_list = []
         label_list = []
-        correct_predict = 0
-        total_samples = 0
         for batch_idx, (data, label) in enumerate(
             batch_generate(
                 dataset, self.config.batch_size, mode="test", config=self.config
@@ -84,7 +95,12 @@ class MethodVAERegression(MethodBase, nn.Module):
             label_list.extend(label.detach().cpu().numpy())
             result_list.extend(pred_label.detach().cpu().numpy())
 
-        # show_reconstructions(self, data, label)
-        return accuracy_score(
+        accuracy = accuracy_score(
             y_true=np.argmax(label_list, axis=1), y_pred=np.array(result_list)
         )
+        self.writer.add_scalar("Testing Accuracy", accuracy, epoch)
+        if epoch == self.config.num_epoch:
+            self.writer.close()
+        # show_reconstructions(self, data, label)
+
+        return accuracy

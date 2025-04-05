@@ -85,7 +85,7 @@ class ReservoirComputing:
         self.Wrec = Wrec.to(self.device)
         self.ridge_model = RidgeCV
 
-    def rc_train(self, latent_data, label):
+    def update_states(self, latent_data):
         size, fig_dim = latent_data.shape
         state = torch.zeros(self.config.num_neuron, device=self.device)
         state_history = torch.zeros(size, self.config.num_neuron, device=self.device)
@@ -94,6 +94,11 @@ class ReservoirComputing:
             update_in = torch.matmul(self.Win, latent_data[fig, :].reshape(-1, 1))
             state = torch.tanh(self.Wrec @ state.reshape(-1, 1) + update_in)
             state_history[fig, :] = state.squeeze(1)
+
+        return state_history
+
+    def rc_train(self, latent_data, label):
+        state_history = self.update_states(latent_data)
 
         self.ridge_model = RidgeCV(alphas=self.config.alphas, fit_intercept=False)
         self.ridge_model.fit(
@@ -104,15 +109,7 @@ class ReservoirComputing:
         return torch.from_numpy(y_pred).to(self.device)
 
     def rc_predict(self, latent_data):
-        size, fig_dim = latent_data.shape
-        state = torch.zeros(self.config.num_neuron, device=self.device)
-        state_history = torch.zeros(size, self.config.num_neuron, device=self.device)
-
-        for fig in range(size):
-            update_in = torch.matmul(self.Win, latent_data[fig, :].reshape(-1, 1))
-            state = torch.tanh(self.Wrec @ state.reshape(-1, 1) + update_in)
-            state_history[fig, :] = state.squeeze(1)
-
+        state_history = self.update_states(latent_data)
         y_pred = self.ridge_model.predict(state_history.detach().cpu().numpy())
 
         return torch.from_numpy(y_pred).to(self.device)
