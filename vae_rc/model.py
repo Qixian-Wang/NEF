@@ -2,10 +2,11 @@ import torch
 import torch.nn as nn
 from sklearn.linear_model import RidgeCV
 
+
 class VAE(nn.Module):
     def __init__(self, config):
         super(VAE, self).__init__()
-        self.data_length = config.sequence_length
+        self.data_length = config.data_length
         self.num_hidden = config.num_hidden
         self.encoder = nn.Sequential(
             nn.Linear(self.data_length, int(self.data_length / 2)),
@@ -43,9 +44,12 @@ class Regression:
         self.ridge_model = RidgeCV
 
     def regression_forward(self, latent_data, label):
-        self.ridge_model = RidgeCV(alphas=self.config.alphas, fit_intercept=False)
-        self.ridge_model.fit(latent_data.detach().cpu().numpy(), label.detach().cpu().numpy())
+        self.ridge_model = RidgeCV(alphas=self.config.alphas, fit_intercept=True)
+        self.ridge_model.fit(
+            latent_data.detach().cpu().numpy(), label.detach().cpu().numpy()
+        )
         y_pred = self.ridge_model.predict(latent_data.detach().cpu().numpy())
+        a = self.ridge_model.coef_
 
         return torch.from_numpy(y_pred).to(self.device)
 
@@ -54,19 +58,22 @@ class Regression:
 
         return torch.from_numpy(y_pred).to(self.device)
 
+
 class ReservoirComputing:
     def __init__(self, config):
         self.config = config
         self.device = config.device
 
         self.Win = (
-            torch.FloatTensor(config.num_neuron, config.input_dim_rnn)
-            .uniform_(-config.sigma, config.sigma)
+            torch.FloatTensor(config.num_neuron, config.num_hidden)
+            .uniform_(-config.reservoir_sigma, config.reservoir_sigma)
             .to(self.device)
         )
 
         Wrec = torch.rand(config.num_neuron, config.num_neuron) - 0.5
-        mask = torch.rand(config.num_neuron, config.num_neuron) < config.sparsity
+        mask = (
+            torch.rand(config.num_neuron, config.num_neuron) < config.reservoir_sparsity
+        )
         Wrec[mask] = 0.0
 
         eigvals = torch.linalg.eigvals(Wrec)
@@ -89,7 +96,9 @@ class ReservoirComputing:
             state_history[fig, :] = state.squeeze(1)
 
         self.ridge_model = RidgeCV(alphas=self.config.alphas, fit_intercept=False)
-        self.ridge_model.fit(state_history.detach().cpu().numpy(), label.detach().cpu().numpy())
+        self.ridge_model.fit(
+            state_history.detach().cpu().numpy(), label.detach().cpu().numpy()
+        )
         y_pred = self.ridge_model.predict(state_history.detach().cpu().numpy())
 
         return torch.from_numpy(y_pred).to(self.device)

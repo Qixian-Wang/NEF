@@ -4,7 +4,7 @@ import numpy as np
 from urllib import request
 import gzip
 from sklearn.preprocessing import OneHotEncoder
-from config_file import Configs
+import config_file
 
 
 class DatasetMNIST(data.Dataset):
@@ -55,6 +55,10 @@ class DatasetMNIST(data.Dataset):
 
             self.y_train = y_train.astype(np.int64)
             self.y_test = y_test.astype(np.int64)
+
+        data_property = {"data_length": X_train.shape[1]}
+
+        config_file.configs = config_file.configs.copy(update=data_property)
 
     def __getitem__(self, index):
         return (

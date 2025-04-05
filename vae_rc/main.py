@@ -10,40 +10,31 @@ from method_pca import MethodPCA
 from method_naiverc import NaiveRC
 
 from dataloader import DatasetMNIST, data_generator
-from config_file import Configs
+import config_file
 import time
 
 
-def main(epoch: int, dataset: DatasetMNIST, method: MethodBase, seed: int | None = None) -> None:
+def main(
+    epoch: int, dataset: DatasetMNIST, method: MethodBase, seed: int | None = None
+) -> None:
 
     for i in range(epoch):
         start_time = time.time()
-        train_accuracy = method.train(dataset, seed)
+        train_accuracy = method.train(i, dataset, seed)
         print(f"training duration: {time.time() - start_time:.2f}s")
         print(f"Train Accuracy: {train_accuracy * 100:.2f}%")
 
         start_time = time.time()
-        test_accuracy = method.test(dataset, seed)
+        test_accuracy = method.test(i, dataset, seed)
         print(f"test duration: {time.time() - start_time:.2f}s")
         print(f"Final Test Accuracy: {test_accuracy * 100:.2f}%")
-
-    # elif method == "Method1":
-    #     model = VAE_regression(configs).to(configs.device)
-    #     train_regression(model, train_dataset, configs)
-    #     test_regression(model, test_dataset, configs)
-    #
-    # elif method == "Method2":
-    #     model = VAE_RC(configs).to(configs.device)
-    #     train_combined(model, train_dataset, configs)
-    #     test_combined(model, test_dataset, configs)
 
 
 if __name__ == "__main__":
     seed = 42
     torch.manual_seed(seed)
+    dataset = data_generator(config_file.configs)
+    method = MethodVAERC(config_file.configs)
 
-    configs = Configs()
-    dataset = data_generator(configs)
-    method = MethodVAERegression(configs)
-
-    main(dataset=dataset, method=method, seed=seed, epoch=10)
+    main(dataset=dataset, method=method, seed=seed, epoch=config_file.configs.num_epoch)
+    config_file.configs.writer.close()

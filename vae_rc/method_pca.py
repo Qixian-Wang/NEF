@@ -12,7 +12,7 @@ class MethodPCA(MethodBase):
         self.pca: PCA
         self.ridge_model: RidgeCV
 
-    def train(self, dataset, seed: int | None = None) -> float:
+    def train(self, epoch, dataset, seed: int | None = None) -> float:
         self.pca = PCA(n_components=self.config.n_components)
         train_data_pca = self.pca.fit_transform(dataset.X_train)
 
@@ -24,8 +24,10 @@ class MethodPCA(MethodBase):
             y_true=np.argmax(dataset.y_train, axis=1), y_pred=np.argmax(y_pred, axis=1)
         )
 
-    def test(self, dataset, seed: int | None = None) -> float:
+    def test(self, epoch, dataset, seed: int | None = None) -> float:
         X_pca = self.pca.transform(dataset.X_test)
         y_pred = self.ridge_model.predict(X_pca)
 
-        return accuracy_score(y_true=np.argmax(dataset.y_test, axis=1), y_pred=np.argmax(y_pred, axis=1))
+        return accuracy_score(
+            y_true=np.argmax(dataset.y_test, axis=1), y_pred=np.argmax(y_pred, axis=1)
+        )

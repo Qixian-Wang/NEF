@@ -47,7 +47,7 @@ class NaiveRC(MethodBase):
             y_true=np.argmax(label, axis=1), y_pred=np.argmax(y_pred, axis=1)
         )
 
-    def train(self, dataset, seed: int | None = None):
+    def train(self, epoch, dataset, seed: int | None = None):
         data = torch.from_numpy(dataset.X_train)
         label = torch.from_numpy(dataset.y_train)
         state_history = self.update_state(data)
@@ -57,7 +57,7 @@ class NaiveRC(MethodBase):
 
         return self.compute_accuracy(state_history, label)
 
-    def test(self, dataset, seed: int | None = None):
+    def test(self, epoch, dataset, seed: int | None = None):
         data = torch.from_numpy(dataset.X_test)
         label = dataset.y_test
         state_history = self.update_state(data)

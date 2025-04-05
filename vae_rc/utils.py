@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 import torch
 
-def show_reconstructions(model, X, label, num_images=8, epoch=0):
-    model.eval()
+
+def show_reconstructions(model, X, label, num_images=8):
     with torch.no_grad():
-        _, _, _, _, decoded, _ = model(X, label, epoch)
+        _, _, _, _, decoded, _ = model.forward(X, label, mode="test")
 
     originals = X.view(-1, 28, 28).cpu().numpy()
     reconstructions = decoded.view(-1, 28, 28).cpu().numpy()
