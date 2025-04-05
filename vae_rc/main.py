@@ -34,7 +34,7 @@ if __name__ == "__main__":
     seed = 42
     torch.manual_seed(seed)
     dataset = data_generator(config_file.configs)
-    method = MethodVAERegression(config_file.configs)
+    method = NaiveRC(config_file.configs)
 
     main(dataset=dataset, method=method, seed=seed, epoch=config_file.configs.num_epoch)
     config_file.configs.writer.close()
