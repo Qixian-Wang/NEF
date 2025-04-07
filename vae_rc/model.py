@@ -84,6 +84,8 @@ class ReservoirComputing:
         Wrec *= config.spectral_radius / max(rho_A, 1e-8)
         self.Wrec = Wrec.to(self.device)
         self.ridge_model = RidgeCV
+        self.Win.requires_grad_(False)
+        self.Wrec.requires_grad_(False)
 
     def update_states(self, latent_data):
         size, fig_dim = latent_data.shape
@@ -97,12 +99,12 @@ class ReservoirComputing:
 
         return state_history
 
-    def rc_train(self, latent_data, label):
+    def rc_train(self, latent_data, data):
         state_history = self.update_states(latent_data)
 
         self.ridge_model = RidgeCV(alphas=self.config.alphas, fit_intercept=False)
         self.ridge_model.fit(
-            state_history.detach().cpu().numpy(), label.detach().cpu().numpy()
+            state_history.detach().cpu().numpy(), data.detach().cpu().numpy()
         )
         y_pred = self.ridge_model.predict(state_history.detach().cpu().numpy())
 
@@ -113,3 +115,21 @@ class ReservoirComputing:
         y_pred = self.ridge_model.predict(state_history.detach().cpu().numpy())
 
         return torch.from_numpy(y_pred).to(self.device)
+
+    def rc_train_costom(self, latent_data, data):
+        state_history = self.update_states(latent_data)
+        original_data = data.detach()
+
+        unit_matrix = torch.eye(state_history.size(1), device=state_history.device)
+        mat_a = state_history.T @ state_history + 1 * unit_matrix
+        mat_b = state_history.T @ original_data
+        ridge_sol = torch.linalg.solve(mat_a, mat_b)
+        self.ridge_sol = ridge_sol.detach()
+
+        Y_pred = state_history @ self.ridge_sol
+        return Y_pred
+
+    def rc_predict_costom(self, latent_data):
+        state_history = self.update_states(latent_data)
+        Y_pred = state_history @ self.ridge_sol
+        return Y_pred

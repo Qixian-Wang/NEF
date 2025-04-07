@@ -14,8 +14,8 @@ class Configs(BaseModel):
 
     # Parameters
     alphas: np.ndarray = np.linspace(1e-4, 10, 20)
-    batch_size: int = 200
-    num_epoch: int = 100
+    batch_size: int = 640
+    num_epoch: int = 10
     data_length: int = 0
 
     # Param for PCA
@@ -23,19 +23,18 @@ class Configs(BaseModel):
 
     # Param for VAE
     VAE_learning_rate: float = 1e-3
-    num_hidden: int = 32
+    num_hidden: int = 64
 
     # Subset configuration
     use_subset: bool = False
-    train_subset_size: int = 5000
-    test_subset_size: int = 1000
+    train_subset_size: int = 640
+    test_subset_size: int = 10000
 
     # Param for Reservoir
     num_neuron: int = 100
     input_dim_ridge: int = 784
     spectral_radius: float = 0.8
     reservoir_sigma: float = 0.1
-    reservoir_sparsity: float = 0.98
-
+    reservoir_sparsity: float = 0.9
 
 configs = Configs()

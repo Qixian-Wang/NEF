@@ -5,9 +5,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.metrics import accuracy_score
 import numpy as np
+import matplotlib.pyplot as plt
 
 from model import VAE, ReservoirComputing
-from utils import batch_generate, show_reconstructions
+from utils import batch_generate, show_reconstructions, plot_y_pred
 from method_base import MethodBase
 
 
@@ -21,81 +22,83 @@ class MethodVAERC(MethodBase, nn.Module):
         self.optimizer = optim.Adam(self.vae.parameters(), lr=config.VAE_learning_rate)
         self.writer = self.config.writer
         self.to(self.config.device)
+        self.readout = nn.Linear(config.num_neuron, config.data_length, bias=False).to(config.device)
 
-    def forward(self, data, label, mode):
+    def forward(self, data, mode):
         encoded, mu, log_var, z, decoded = self.vae(data)
-        if mode == "train":
-            prediction = self.rc.rc_train(z, label)
-        if mode == "test":
-            prediction = self.rc.rc_predict(z)
 
-        return encoded, mu, log_var, z, decoded, prediction
+        if mode == "train":
+            rc_reconstruction = self.rc.rc_train_costom(z, data)
+        if mode == "test":
+            rc_reconstruction = self.rc.rc_predict_costom(z)
+
+        return encoded, mu, log_var, z, decoded, rc_reconstruction
 
     def train(self, epoch: int, dataset, seed: int | None = None):
         self.vae.train()
-        result_list = []
-        label_list = []
-        totoal_recon_loss = 0
-        totoal_kld_loss = 0
-        totoal_vae_loss = 0
-        for batch_idx, (data, label) in enumerate(
+        total_recon_loss = 0
+        total_kld_loss = 0
+        total_vae_loss = 0
+        total_rc_loss = 0
+        for batch_idx, data in enumerate(
             batch_generate(
                 dataset, self.config.batch_size, mode="train", config=self.config
             )
         ):
-            encoded, mu, log_var, z, decoded, prediction = self.forward(
-                data, label, mode="train"
+            encoded, mu, log_var, z, decoded, rc_reconstruction = self.forward(
+                data, mode="train"
             )
 
             recon_loss = F.mse_loss(decoded, data)
             kld_loss = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
-            vae_loss_batch = 10 * recon_loss + 1 * kld_loss
-            _, result = prediction.max(dim=1)
+            vae_loss_batch = 10 * recon_loss + 0.01 * kld_loss
+            rc_loss = F.mse_loss(rc_reconstruction, data)
 
-            label_list.extend(label.detach().cpu().numpy())
-            result_list.extend(result.detach().cpu().numpy())
-
-            total_loss_batch = vae_loss_batch
+            total_loss_batch = 1 * vae_loss_batch + 0.01 * rc_loss
             self.optimizer.zero_grad()
             total_loss_batch.backward()
             self.optimizer.step()
 
-            totoal_recon_loss += recon_loss.item()
-            totoal_kld_loss += kld_loss.item()
-            totoal_vae_loss += vae_loss_batch.item()
+            total_recon_loss += recon_loss.item()
+            total_kld_loss += kld_loss.item()
+            total_vae_loss += vae_loss_batch.item()
+            total_rc_loss += rc_loss.item() * self.config.batch_size
 
-        accuracy = accuracy_score(
-            y_true=np.argmax(label_list, axis=1), y_pred=np.array(result_list)
-        )
-        self.writer.add_scalar("Reconstruction_loss", totoal_recon_loss, epoch)
-        self.writer.add_scalar("KLD_loss", totoal_kld_loss, epoch)
-        self.writer.add_scalar("VAE_loss_sum", totoal_vae_loss, epoch)
-        self.writer.add_scalar("Training Accuracy", accuracy, epoch)
 
-        return accuracy
+        loss = total_vae_loss + rc_loss
+        self.writer.add_scalar("Reconstruction_loss", total_recon_loss, epoch)
+        self.writer.add_scalar("KLD_loss", total_kld_loss, epoch)
+        self.writer.add_scalar("VAE_loss_sum", total_vae_loss, epoch)
+        self.writer.add_scalar("RC_loss_sum", total_rc_loss, epoch)
+        self.writer.add_scalar("Training Accuracy", loss, epoch)
+        print(f"Epoch{epoch}")
+        print(f"Reconstruction_loss {total_recon_loss:.4f}")
+        print(f"KLD_loss {total_kld_loss:.4f}")
+        print(f"VAE_loss_sum {total_vae_loss:.4f}")
+        print(f"RC_loss_sum {total_rc_loss:.4f}")
+
+        return loss
 
     def test(self, epoch: int, dataset, seed: int | None = None):
         self.vae.eval()
-        result_list = []
-        label_list = []
-        for batch_idx, (data, label) in enumerate(
+        toral_rc_loss = 0
+        for batch_idx, data in enumerate(
             batch_generate(
                 dataset, self.config.batch_size, mode="test", config=self.config
             )
         ):
-            encoded, mu, log_var, z, decoded, prediction = self.forward(
-                data, label, mode="test"
+            encoded, mu, log_var, z, decoded, rc_reconstruction = self.forward(
+                data, mode="test"
             )
 
-            _, pred_label = prediction.max(dim=1)
-            label_list.extend(label.detach().cpu().numpy())
-            result_list.extend(pred_label.detach().cpu().numpy())
+            rc_loss = F.mse_loss(rc_reconstruction, data)
+            toral_rc_loss += rc_loss.item() * self.config.batch_size
 
-        accuracy = accuracy_score(
-            y_true=np.argmax(label_list, axis=1), y_pred=np.array(result_list)
-        )
-        self.writer.add_scalar("Testing Accuracy", accuracy, epoch)
+        self.writer.add_scalar("Validating loss", toral_rc_loss, epoch)
         if epoch == self.config.num_epoch:
             self.writer.close()
-        # show_reconstructions(self, data, label)
-        return accuracy
+
+        # if epoch % 2 == 0:
+        #     plot_y_pred(rc_reconstruction, n_images=5, config=self.config)
+        #     show_reconstructions(self, data)
+        return toral_rc_loss

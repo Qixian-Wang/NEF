@@ -1,11 +1,13 @@
 import os
 import torch.utils.data as data
+import torch
 import numpy as np
 from urllib import request
 import gzip
 from sklearn.preprocessing import OneHotEncoder
+from utils import lorenz_system
 import config_file
-
+from scipy.integrate import odeint
 
 class DatasetMNIST(data.Dataset):
     def __init__(self, configs):
@@ -57,7 +59,6 @@ class DatasetMNIST(data.Dataset):
             self.y_test = y_test.astype(np.int64)
 
         data_property = {"data_length": X_train.shape[1]}
-
         config_file.configs = config_file.configs.copy(update=data_property)
 
     def __getitem__(self, index):
@@ -70,6 +71,37 @@ class DatasetMNIST(data.Dataset):
 
     def __len__(self):
         return len(self.X_train)
+
+
+class DatasetLorenz(data.Dataset):
+    def __init__(self, config):
+        dt = config.dt
+        t = np.linspace(0, (config.sequence_length - 1) * dt, config.sequence_length)
+
+        samples = []
+        for i in range(config.num_samples):
+            init_state = np.random.uniform(-20, 20, size=3)
+            sol = odeint(lorenz_system, init_state, t)
+            samples.append(sol.T)
+
+        samples = np.stack(samples, axis=0)   # shape: (num_samples, 3, sequence_length)
+
+        if config.use_subset:
+            subset_size = int(config.batch_size * 10)
+            samples = samples[:subset_size]
+
+        self.X_train = torch.tensor(samples[:int(0.8 * config.num_samples)], dtype=torch.float32)
+        self.X_test = torch.tensor(samples[-int(0.2 * config.num_samples):], dtype=torch.float32)
+        self.len = self.X_train.shape[2]
+
+        data_property = {"data_length": self.len}
+        config_file.configs = config_file.configs.copy(update=data_property)
+
+    def __getitem__(self, index):
+            return self.X_train[index], self.X_test[index]
+
+    def __len__(self):
+        return self.len
 
 
 def data_generator(configs):

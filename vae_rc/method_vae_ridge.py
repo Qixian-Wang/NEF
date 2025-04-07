@@ -52,7 +52,7 @@ class MethodVAERegression(MethodBase, nn.Module):
 
             recon_loss = F.mse_loss(decoded, data)
             kld_loss = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
-            vae_loss_batch = 10 * recon_loss + kld_loss
+            vae_loss_batch = 10 * recon_loss + 0.1 * kld_loss
             _, result = prediction.max(dim=1)
 
             label_list.extend(label.detach().cpu().numpy())
@@ -86,7 +86,6 @@ class MethodVAERegression(MethodBase, nn.Module):
                 dataset, self.config.batch_size, mode="test", config=self.config
             )
         ):
-
             encoded, mu, log_var, z, decoded, prediction = self.forward(
                 data, label, mode="test"
             )
