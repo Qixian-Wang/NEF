@@ -21,6 +21,7 @@ class VAE(nn.Module):
             nn.Linear(self.num_hidden, int(self.data_length / 2)),
             nn.ReLU(),
             nn.Linear(int(self.data_length / 2), self.data_length),
+            nn.Sigmoid()
         )
 
     def reparameterize(self, mu, log_var):
@@ -99,15 +100,14 @@ class ReservoirComputing:
 
         return state_history
 
-    def rc_train(self, latent_data, data):
+    def rc_train(self, latent_data, label):
         state_history = self.update_states(latent_data)
 
         self.ridge_model = RidgeCV(alphas=self.config.alphas, fit_intercept=False)
         self.ridge_model.fit(
-            state_history.detach().cpu().numpy(), data.detach().cpu().numpy()
+            state_history.detach().cpu().numpy(), label.detach().cpu().numpy()
         )
         y_pred = self.ridge_model.predict(state_history.detach().cpu().numpy())
-
         return torch.from_numpy(y_pred).to(self.device)
 
     def rc_predict(self, latent_data):
@@ -122,7 +122,7 @@ class ReservoirComputing:
 
         unit_matrix = torch.eye(state_history.size(1), device=state_history.device)
         mat_a = state_history.T @ state_history + 1 * unit_matrix
-        mat_b = state_history.T @ original_data
+        mat_b = state_history.T @ original_data.float()
         ridge_sol = torch.linalg.solve(mat_a, mat_b)
         self.ridge_sol = ridge_sol.detach()
 
@@ -133,3 +133,4 @@ class ReservoirComputing:
         state_history = self.update_states(latent_data)
         Y_pred = state_history @ self.ridge_sol
         return Y_pred
+

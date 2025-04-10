@@ -8,6 +8,9 @@ from sklearn.preprocessing import OneHotEncoder
 from utils import lorenz_system
 import config_file
 from scipy.integrate import odeint
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, Subset, random_split
+
 
 class DatasetMNIST(data.Dataset):
     def __init__(self, configs):
@@ -102,6 +105,29 @@ class DatasetLorenz(data.Dataset):
 
     def __len__(self):
         return self.len
+
+class DatasetCIFAR:
+    def __init__(self, config):
+        self.config = config
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+
+        full_train_data = datasets.CIFAR10(root='./data', train=True, download=True, transform=self.transform)
+
+        val_size = int(0.1 * len(full_train_data))  # e.g. 5000
+        train_size = len(full_train_data) - val_size
+        self.train_data, self.val_data = random_split(full_train_data, [train_size, val_size],
+                                                      generator=torch.Generator().manual_seed(42))
+
+
+        self.test_data = datasets.CIFAR10(root='./data', train=False, download=True, transform=self.transform)
+
+    def get_loader(self, mode):
+        if mode == "train":
+            return DataLoader(self.train_data, batch_size=self.config.batch_size, shuffle=True)
+        elif mode == "val":
+            return DataLoader(self.val_data, batch_size=self.config.batch_size, shuffle=False)
 
 
 def data_generator(configs):

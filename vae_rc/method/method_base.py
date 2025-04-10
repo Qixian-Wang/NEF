@@ -7,5 +7,9 @@ class MethodBase(ABC):
         pass
 
     @abstractmethod
-    def test(self, epoch: int, dataset, seed: int | None = None):
+    def validate(self, epoch: int, dataset, seed: int | None = None):
+        pass
+
+    @abstractmethod
+    def test(self, dataset, seed: int | None = None):
         pass
