@@ -34,10 +34,12 @@ class Configs(BaseModel):
     log_dir: str = os.path.join("runs", "test1")
     writer: SummaryWriter = SummaryWriter(log_dir=log_dir)
 
+    ff_activate: bool = True
+
     # Parameters
     alphas: np.ndarray = np.linspace(1e-4, 10, 20)
     batch_size: int = 64
-    num_epoch: int = 30
+    num_epoch: int = 15
     data_length: int = 0
 
     # Param for PCA
@@ -45,12 +47,12 @@ class Configs(BaseModel):
 
     # Param for VAE
     VAE_learning_rate: float = 1e-3
-    num_hidden: int = 32
+    num_hidden: int = 16
 
     # Subset configuration
     use_subset: bool = False
-    train_subset_size: int = 640
-    test_subset_size: int = 100
+    train_subset_size: int = 10000
+    test_subset_size: int = 2000
 
     # Param for Reservoir
     num_neuron: int = 50
@@ -62,9 +64,6 @@ class Configs(BaseModel):
     # Param for Hebbian
     in_channels: int = 1
     kernel_size: int = 28
-    lfb_value: float = 0
-    competitive: bool = False
-    random_abstention: bool = False
     alpha: float = 1.0
     weight_upd_rule: str = RULE_HEBB
     weight_init: str = INIT_BASE

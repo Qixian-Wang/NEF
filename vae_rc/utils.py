@@ -43,24 +43,29 @@ def show_reconstructions_CIFAR(model, X, num_images=8):
     plt.tight_layout()
     plt.show()
 
-def batch_generate(dataset, batch_size, mode, config):
+def batch_generate(dataset, batch_size, ff_data, mode, config):
+    if ff_data and config.ff_activate:
+        posneg_labels = np.zeros((dataset.X_train.shape[0] + dataset.hybrid_dataset.shape[0]))
+        posneg_labels[: dataset.hybrid_dataset.shape[0]] = 1
+        posneg_labels = torch.from_numpy(posneg_labels).to(config.device)
+
     if mode == "train":
-        data = dataset.X_train
-        label = dataset.y_train
+        data = (np.concatenate([dataset.X_train, dataset.hybrid_dataset], axis=0) if ff_data and config.ff_activate else dataset.X_train)
+        label = (np.concatenate([dataset.y_train, dataset.y_train], axis=0) if ff_data and config.ff_activate else dataset.y_train)
     if mode == "test":
         data = dataset.X_test
         label = dataset.y_test
 
     data = torch.from_numpy(data).to(config.device)
     label = torch.from_numpy(label).to(config.device)
-
     num_samples = data.shape[0]
-    indices = torch.randperm(num_samples)
+    indices = torch.randperm(num_samples, device=config.device)
     for i in range(0, num_samples, batch_size):
         batch_indices = indices[i : i + batch_size]
         batch_data = data[batch_indices]
         batch_label = label[batch_indices]
-        yield batch_data, batch_label
+        batch_posneg_labels = posneg_labels[batch_indices] if ff_data and config.ff_activate else None
+        yield batch_data, batch_label, batch_posneg_labels
 
 
 def lorenz_system(state, t):
@@ -125,4 +130,12 @@ def plot_latent_gaussians(mu, log_var, name="Latent Gaussian PDFs"):
     plt.grid(True)
     plt.legend(ncol=2, fontsize=8)
     plt.tight_layout()
+    plt.show()
+
+
+def display_hybrid_images(imageA, imageB, hybrid):
+    fig, axes = plt.subplots(1, 3)
+    axes[0].imshow(imageA, cmap='gray')
+    axes[1].imshow(imageB, cmap='gray')
+    axes[2].imshow(hybrid, cmap='gray')
     plt.show()

@@ -5,15 +5,16 @@ import numpy as np
 from urllib import request
 import gzip
 from sklearn.preprocessing import OneHotEncoder
-from utils import lorenz_system
+from utils import lorenz_system, display_hybrid_images
 import config_file
 from scipy.integrate import odeint
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset, random_split
-
+import cv2
 
 class DatasetMNIST(data.Dataset):
     def __init__(self, configs):
+        self.config = configs
         url = "https://ossci-datasets.s3.amazonaws.com/mnist/"
         filenames = [
             "train-images-idx3-ubyte.gz",
@@ -42,35 +43,55 @@ class DatasetMNIST(data.Dataset):
 
         encoder = OneHotEncoder()
         X_train, y_train, X_test, y_test = data_dic
+
+        if configs.ff_activate:
+            num_samples = X_train.shape[0]
+            height, width = 28, 28
+            hybrid_dataset = np.zeros_like(X_train, dtype=np.float32)
+
+            for i in range(int(num_samples/3)):
+                imgA = X_train[i].reshape(height, width)
+                idx = np.random.choice(np.delete(np.arange(num_samples), i))
+                imgB = X_train[idx].reshape(height, width)
+
+                # 直接把上半张 imgA、下半张 imgB 拼起来
+                top = imgA[: height // 2, :]
+                bottom = imgB[height // 2:, :]
+                hybrid_img = np.vstack((top, bottom))
+
+                hybrid_dataset[i] = hybrid_img.reshape(-1)
+                # display_hybrid_images(imgA, imgB, hybrid_img)
+
         y_train = encoder.fit_transform(y_train.reshape(-1, 1)).toarray()
         y_test = encoder.fit_transform(y_test.reshape(-1, 1)).toarray()
 
-        if configs.use_subset:
-            self.X_train = (
-                X_train[: configs.train_subset_size].astype(np.float32) / 255.0
-            )
-            self.X_test = X_test[: configs.test_subset_size].astype(np.float32) / 255.0
-
-            self.y_train = y_train[: configs.train_subset_size].astype(np.int64)
-            self.y_test = y_test[: configs.test_subset_size].astype(np.int64)
-
-        else:
-            self.X_train = X_train.astype(np.float32) / 255.0
-            self.X_test = X_test.astype(np.float32) / 255.0
-
-            self.y_train = y_train.astype(np.int64)
-            self.y_test = y_test.astype(np.int64)
+        self.X_train = (X_train[:configs.train_subset_size] if configs.use_subset else X_train).astype(np.float32) / 255.0
+        self.X_test = (X_test[:configs.test_subset_size] if configs.use_subset else X_test).astype(np.float32) / 255.0
+        if configs.ff_activate:
+            self.hybrid_dataset = (hybrid_dataset[:configs.train_subset_size] if configs.use_subset else hybrid_dataset).astype(
+                np.float32) / 255.0
+        self.y_train = (y_train[:configs.train_subset_size] if configs.use_subset else y_train).astype(np.int64)
+        self.y_test = (y_test[:configs.test_subset_size] if configs.use_subset else y_test).astype(np.int64)
 
         data_property = {"data_length": X_train.shape[1]}
         config_file.configs = config_file.configs.copy(update=data_property)
 
     def __getitem__(self, index):
-        return (
-            self.X_train[index],
-            self.y_train[index],
-            self.X_test[index],
-            self.y_test[index],
-        )
+        if self.config.ff_activate:
+            return (
+                self.X_train[index],
+                self.y_train[index],
+                self.X_test[index],
+                self.y_test[index],
+                self.hybrid_dataset[index]
+            )
+        else:
+            return (
+                self.X_train[index],
+                self.y_train[index],
+                self.X_test[index],
+                self.y_test[index],
+            )
 
     def __len__(self):
         return len(self.X_train)
