@@ -11,6 +11,7 @@ from scipy.integrate import odeint
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset, random_split
 import cv2
+from sktime.datasets import load_UCR_UEA_dataset
 
 class DatasetMNIST(data.Dataset):
     def __init__(self, configs):
@@ -44,17 +45,17 @@ class DatasetMNIST(data.Dataset):
         encoder = OneHotEncoder()
         X_train, y_train, X_test, y_test = data_dic
 
+        neg_size = 20000
         if configs.ff_activate:
             num_samples = X_train.shape[0]
             height, width = 28, 28
             hybrid_dataset = np.zeros_like(X_train, dtype=np.float32)
 
-            for i in range(int(num_samples/3)):
+            for i in range(neg_size):
                 imgA = X_train[i].reshape(height, width)
                 idx = np.random.choice(np.delete(np.arange(num_samples), i))
                 imgB = X_train[idx].reshape(height, width)
 
-                # 直接把上半张 imgA、下半张 imgB 拼起来
                 top = imgA[: height // 2, :]
                 bottom = imgB[height // 2:, :]
                 hybrid_img = np.vstack((top, bottom))
@@ -67,8 +68,9 @@ class DatasetMNIST(data.Dataset):
 
         self.X_train = (X_train[:configs.train_subset_size] if configs.use_subset else X_train).astype(np.float32) / 255.0
         self.X_test = (X_test[:configs.test_subset_size] if configs.use_subset else X_test).astype(np.float32) / 255.0
+
         if configs.ff_activate:
-            self.hybrid_dataset = (hybrid_dataset[:configs.train_subset_size] if configs.use_subset else hybrid_dataset).astype(
+            self.hybrid_dataset = hybrid_dataset[:neg_size].astype(
                 np.float32) / 255.0
         self.y_train = (y_train[:configs.train_subset_size] if configs.use_subset else y_train).astype(np.int64)
         self.y_test = (y_test[:configs.test_subset_size] if configs.use_subset else y_test).astype(np.int64)
@@ -150,6 +152,13 @@ class DatasetCIFAR:
         elif mode == "val":
             return DataLoader(self.val_data, batch_size=self.config.batch_size, shuffle=False)
 
+class DatasetWafer:
+    def __init__(self, configs):
+        self.config = configs
+        X_train, y_train = load_UCR_UEA_dataset("Wafer", split="train")
+        X_test, y_test = load_UCR_UEA_dataset("Wafer", split="test")
+        X_train = np.vstack(X_train.values)  # shape = (N_train, L)
+        y_train = y_train.values
 
 def data_generator(configs):
     dataset = DatasetMNIST(configs)

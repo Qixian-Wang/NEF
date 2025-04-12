@@ -4,27 +4,11 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict
 from torch.utils.tensorboard import SummaryWriter
 
-RULE_BASE = 'base'  # r = lfb
-RULE_HEBB = 'hebb'  # r = y * lfb
-
-# Type of reconstruction scheme
-REC_QNT = 'qnt'  # reconst = w
-REC_QNT_SGN = 'qnt_sgn'  # reconst = sign(lfb) * w
-REC_LIN_CMB = 'lin_cmb'  # reconst = sum_i y_i w_i
-
 # Types of LFB kernels
 LFB_GAUSS = 'gauss'
 LFB_DoG = 'DoG'
 LFB_EXP = 'exp'
 LFB_DoE = 'DoE'
-
-# Types of weight initialization schemes
-INIT_BASE = 'base'
-INIT_NORM = 'norm'
-
-# Type of update reduction scheme
-RED_AVG = 'avg'  # average
-RED_W_AVG = 'w_avg'  # weighted average
 
 
 class Configs(BaseModel):
@@ -39,7 +23,7 @@ class Configs(BaseModel):
     # Parameters
     alphas: np.ndarray = np.linspace(1e-4, 10, 20)
     batch_size: int = 64
-    num_epoch: int = 15
+    num_epoch: int = 20
     data_length: int = 0
 
     # Param for PCA
@@ -50,9 +34,9 @@ class Configs(BaseModel):
     num_hidden: int = 16
 
     # Subset configuration
-    use_subset: bool = False
-    train_subset_size: int = 10000
-    test_subset_size: int = 2000
+    use_subset: bool = True
+    train_subset_size: int = 20000
+    test_subset_size: int = 10000
 
     # Param for Reservoir
     num_neuron: int = 50
@@ -64,14 +48,8 @@ class Configs(BaseModel):
     # Param for Hebbian
     in_channels: int = 1
     kernel_size: int = 28
-    alpha: float = 1.0
-    weight_upd_rule: str = RULE_HEBB
-    weight_init: str = INIT_BASE
-    reconstruction: str = REC_LIN_CMB
-    reduction: str = RED_AVG
-    HEBB_UPD_GRP: int = 2
-
-    tau: int = 1000
+    alpha: float = 3.0
+    HEBB_UPD_GRP: int = 8
 
 
 configs = Configs()

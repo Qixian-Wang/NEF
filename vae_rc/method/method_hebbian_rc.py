@@ -21,9 +21,9 @@ class MethodHebbian_RC(MethodBase, nn.Module):
         self.ff_layers = nn.ModuleList([
             HebbianLearning(config, in_channels=1,  out_size=16, kernel_size=28),
             # nn.MaxPool2d(kernel_size=2, stride=2),
-            # HebbianLearning(config, in_channels=128, out_size=(64,1), kernel_size=5),
+            # HebbianLearning(config, in_channels=128, out_size=64, kernel_size=5),
             # nn.MaxPool2d(kernel_size=2, stride=2),
-            # HebbianLearning(config, in_channels=64, out_size=(16,1), kernel_size=3),
+            # HebbianLearning(config, in_channels=64, out_size=16, kernel_size=3),
         ])
 
         self.rc = ReservoirComputing(config)
@@ -31,17 +31,17 @@ class MethodHebbian_RC(MethodBase, nn.Module):
         self.writer = self.config.writer
         self.to(self.config.device)
 
-    def forward(self, data, label):
+    def forward(self, data, label, epoch):
         batch_size = data.size(0)
-        z = data.view(batch_size, 1, 28, 28)
+        data = data.view(batch_size, 1, 28, 28)
 
         for layer in self.ff_layers:
             if isinstance(layer, HebbianLearning):
-                z = layer(z, label)
-                z = self.detach_norm(z)
+                data = layer(data, label, epoch)
+                data = self.detach_norm(data)
             else:
-                z = layer(z)
-        return z
+                data = layer(data)
+        return data
 
     def detach_norm(self, z):
         z = z.detach()
@@ -51,22 +51,42 @@ class MethodHebbian_RC(MethodBase, nn.Module):
 
     def train(self, epoch: int, dataset, seed: int = None):
         self.ff_layers.train()
-        ff_loss_total = 0
-        for batch_idx, (data, label, posneg_labels) in enumerate(
+        recon_loss_total = 0
+        kld_loss_total = 0
+        latents = []
+        labels = []
+        posneg_labels = []
+        for batch_idx, (data, label, posneg_label) in enumerate(
             batch_generate(dataset, self.config.batch_size, mode="train", ff_data=True, config=self.config)
         ):
-            self.forward(data, posneg_labels)
+            latent = self.forward(data, posneg_label, epoch)
+            latents.append(latent)
+            labels.append(label)
+            posneg_labels.append(posneg_label)
             self.optimizer.zero_grad()
             for layer in self.ff_layers:
                 if isinstance(layer, HebbianLearning):
-                    hebbian_loss, ff_loss = layer.local_update()
+                    recon_loss = layer.local_update()
+                    recon_loss_total += recon_loss.item()
             self.optimizer.step()
 
-            ff_loss_total += ff_loss.item()
+        latents = torch.cat(latents, dim=0)
+        posneg_labels = torch.cat(posneg_labels, dim=0)
+        mask = (posneg_labels == 1).bool()
 
-        self.writer.add_scalar("[train] ff_loss_total", ff_loss_total, epoch)
+        for i in range(self.config.num_hidden):
+            x_i = latents[:, i].squeeze(2)
+            x_i = x_i[mask]
+            mu_i, std_i = x_i.mean(), x_i.std()
+            kld_loss_total += 0.5 * torch.sum(mu_i.pow(2) + std_i.exp() - 1 - std_i).mean()
+
+        recon_loss_total = recon_loss_total / dataset.X_train.shape[0]
+        kld_loss_total = recon_loss_total / dataset.X_train.shape[0]
+        self.writer.add_scalar("[train] recon_loss_total", recon_loss_total, epoch)
+        self.writer.add_scalar("[train] kld_loss_total", kld_loss_total, epoch)
         print(f"Epoch{epoch}")
-        print(f"[train] ff_loss_total {ff_loss_total:.4f}")
+        print(f"[train] Recon_total {recon_loss_total:.4f}")
+        print(f"[train] KLD_total {kld_loss_total:.4f}")
 
 
     def data_collection(self, dataset, mode: str):
@@ -75,7 +95,7 @@ class MethodHebbian_RC(MethodBase, nn.Module):
         labels = []
         with torch.no_grad():
             for data, label, posneg_labels in batch_generate(dataset, self.config.batch_size, mode=mode, ff_data=False, config=self.config):
-                z = self.forward(data, label)
+                z = self.forward(data, label, 0)
                 latents.append(z)
                 labels.append(label)
 
@@ -107,23 +127,26 @@ class MethodHebbian_RC(MethodBase, nn.Module):
         sil = silhouette_score(latent_np, labels_pred)
         ari = adjusted_rand_score(y_true, labels_pred)
         nmi = normalized_mutual_info_score(y_true, labels_pred)
+        self.writer.add_scalar("[validation] sil", sil, epoch)
+        self.writer.add_scalar("[validation] ari", ari, epoch)
+        self.writer.add_scalar("[validation] nmi", nmi, epoch)
         print(f"Silhouette: {sil:.3f}, ARI: {ari:.3f}, NMI: {nmi:.3f}")
 
-        plt.figure(figsize=(10, 6))
-        x = np.linspace(-8, 8, 500)
-        for i in range(16):
-            x_i = latent0[:, i]
-            mu_i, std_i = x_i.mean(), x_i.std()
-
-            pdf = norm.pdf(x, loc=mu_i, scale=std_i)
-            plt.plot(x, pdf, label=f'z[{i}]', linewidth=1.2)
-
-        plt.xlabel("z value")
-        plt.ylabel("Probability Density")
-        plt.grid(True)
-        plt.legend(ncol=2, fontsize=8)
-        plt.tight_layout()
-        plt.show()
+        # plt.figure(figsize=(10, 6))
+        # x = np.linspace(-8, 8, 500)
+        # for i in range(16):
+        #     x_i = latent0[:, i]
+        #     mu_i, std_i = x_i.mean(), x_i.std()
+        #
+        #     pdf = norm.pdf(x, loc=mu_i, scale=std_i)
+        #     plt.plot(x, pdf, label=f'z[{i}]', linewidth=1.2)
+        #
+        # plt.xlabel("z value")
+        # plt.ylabel("Probability Density")
+        # plt.grid(True)
+        # plt.legend(ncol=2, fontsize=8)
+        # plt.tight_layout()
+        # plt.show()
 
         return acc
 

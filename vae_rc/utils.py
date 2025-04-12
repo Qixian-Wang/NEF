@@ -46,7 +46,7 @@ def show_reconstructions_CIFAR(model, X, num_images=8):
 def batch_generate(dataset, batch_size, ff_data, mode, config):
     if ff_data and config.ff_activate:
         posneg_labels = np.zeros((dataset.X_train.shape[0] + dataset.hybrid_dataset.shape[0]))
-        posneg_labels[: dataset.hybrid_dataset.shape[0]] = 1
+        posneg_labels[: dataset.X_train.shape[0]] = 1
         posneg_labels = torch.from_numpy(posneg_labels).to(config.device)
 
     if mode == "train":
@@ -64,7 +64,7 @@ def batch_generate(dataset, batch_size, ff_data, mode, config):
         batch_indices = indices[i : i + batch_size]
         batch_data = data[batch_indices]
         batch_label = label[batch_indices]
-        batch_posneg_labels = posneg_labels[batch_indices] if ff_data and config.ff_activate else None
+        batch_posneg_labels = posneg_labels[batch_indices] if ff_data and config.ff_activate else torch.ones((batch_data.shape[0]))
         yield batch_data, batch_label, batch_posneg_labels
 
 
