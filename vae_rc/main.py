@@ -3,7 +3,7 @@ import torch
 from NEF.vae_rc.method.method_base import MethodBase
 # from NEF.vae_rc.method.method_vae_rc import MethodVAERC
 from NEF.vae_rc.method.method_hebbian_rc import MethodHebbian_RC
-from NEF.vae_rc.implement.pca_comparison import HebbianComparisonPCA
+from NEF.vae_rc.implement.pca_linear_network import HebbianComparisonPCA
 
 from dataloader import DatasetMNIST, data_generator
 import config_file

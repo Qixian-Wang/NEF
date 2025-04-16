@@ -165,7 +165,7 @@ class DatasetWafer:
         y_train = y_train.values
 
 class ColoredGaussianDataset(IterableDataset):
-    def __init__(self, D=64, top_eigs=[7,6,5,4], low=(0,0.5), seed=None):
+    def __init__(self, D=64, top_eigs=[7, 6, 5, 4], low=(0, 0.5), seed=None):
         super().__init__()
         self.D = D
         self.top_eigs = top_eigs
