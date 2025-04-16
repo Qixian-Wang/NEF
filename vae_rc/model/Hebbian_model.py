@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 from NEF.vae_rc.method.functional import *
 import torch.nn.functional as F
@@ -6,116 +5,123 @@ from NEF.vae_rc.utils import lorenz_system, display_hybrid_images
 
 
 class HebbianLearning(nn.Module):
-    # delta_w = alpha * r * (x - reconst)
-    def __init__(self, config, in_channels, out_size, kernel_size):
-        super(HebbianLearning, self).__init__()
+    # def __init__(self, config, input_dim, out_size):
+    #     super(HebbianLearning, self).__init__()
+    #     self.config = config
+    #     self.training = True
+    #     self.lr = 6e-4
+    #     self.gamma = 5e-4
+    #
+    #     self.feedforward_weights = nn.Parameter(torch.empty(input_dim, out_size), requires_grad=True)
+    #     stdv = 1 / (input_dim ** 0.5)
+    #     nn.init.uniform_(self.feedforward_weights, -stdv, stdv)
+    #
+    #     self.lateral_weights = nn.Parameter(torch.zeros(out_size, out_size), requires_grad=True)
+    #     with torch.no_grad():
+    #         self.lateral_weights.fill_diagonal_(0)
+    #
+    #     self.register_buffer('DY', torch.full((out_size,), 1e-3))
+    #     self.to(config.device)
+    #
+    # def forward(self, data):
+    #     self.total_cost = 0
+    #
+    #     data = data - data.mean(dim=0, keepdim=True)
+    #     y = data @ self.feedforward_weights
+    #     eta_act = 0.9
+    #
+    #     for _ in range(self.config.max_iter):
+    #         y_new = (1 - eta_act) * y + eta_act * (data @ self.feedforward_weights - y @ self.lateral_weights)
+    #         if (y_new - y).abs().max() < 1e-5:
+    #             break
+    #         y = y_new
+    #
+    #     self.current_output = y.detach()
+    #     if self.training:
+    #         self.compute_forward_update(data)
+    #         self.compute_lateral_update()
+    #     return y
+    #
+    # def compute_forward_update(self, data):
+    #     torch.set_grad_enabled(False)
+    #     data = data.reshape(data.shape[0], -1)
+    #     r = self.current_output
+    #     batch_y2 = (r ** 2).sum(dim=0) / data.shape[0]
+    #
+    #     eta = 0.8
+    #     self.DY += batch_y2
+    #     # print(self.DY)
+    #     num = data.t() @ r
+    #     decay = self.feedforward_weights * batch_y2.unsqueeze(0)
+    #     self.delta_w_hebbian = (num - decay) / self.DY.unsqueeze(0)
+    #     recon = ((data - r @ self.feedforward_weights.t()) ** 2).sum()
+    #     self.total_cost = recon
+    #
+    # def compute_lateral_update(self):
+    #     r = self.current_output
+    #     y_outer = r.t() @ r
+    #     decay = ((r ** 2).sum(dim=0) / r.shape[0]).unsqueeze(1) * self.lateral_weights
+    #     self.delta_lateral = ((1 + self.gamma) * y_outer - decay) / self.DY.unsqueeze(1)
+    #     self.delta_lateral.fill_diagonal_(0)
+    #
+    # def local_update(self):
+    #     with torch.no_grad():
+    #         self.feedforward_weights += self.lr * self.delta_w_hebbian
+    #         self.lateral_weights += self.gamma * self.delta_lateral
+    #
+    #     return self.total_cost
+
+    def __init__(self, config, input_dim, out_size):
+        super().__init__()
         self.config = config
-        self.training = True
-        self.kernel_size = kernel_size
-        self.in_channels = in_channels
 
-        # Set output function, similarity function and learning rule
-        self.lrn_sim = kernel_mult2d
-        self.lrn_act = identity
-        self.out_sim = kernel_mult2d
-        self.out_act = identity
-        self.teacher_signal = None  # Teacher signal for supervised training
+        self.tau = 0.5
+        self.learning_rate_fn = lambda t: 1.0 / (t + 5)
 
-        # Alpha is the constant which determines the tradeoff between global and local updates
-        self.alpha = config.alpha
+        self.feedforward_weights = nn.Parameter(torch.empty(input_dim, out_size))
+        stdv = 1.0 / (input_dim ** 0.5)
+        nn.init.uniform_(self.feedforward_weights, -stdv, stdv)
 
-        # Init weights
-        out_channels = out_size
-        kernel_size = [self.kernel_size, self.kernel_size]
-        stdv = 1 / (self.in_channels * kernel_size[0] * kernel_size[1]) ** 0.5
-        self.weight = nn.Parameter(torch.empty(out_channels, self.in_channels, kernel_size[0], kernel_size[1]),
-                                   requires_grad=True)
-        nn.init.uniform_(self.weight, -stdv, stdv)
-
-        # Buffer where the weight update is stored
-        self.register_buffer('delta_w', torch.zeros_like(self.weight))
+        self.lateral_weights = nn.Parameter(torch.eye(out_size))
+        self.register_buffer('time_step', torch.tensor(0.0))
         self.to(config.device)
 
-    def forward(self, data, label, epoch):
-        self.total_recon_loss = 0
-        self.epoch = epoch
-        output = self.out_act(self.out_sim(data, self.weight))
-        if self.training and self.alpha != 0: self.compute_update(data, label)
+    def forward(self, data):
+        data = data.reshape(data.size(0), -1)
+        lateral_weights_inv = torch.inverse(self.lateral_weights)
+
+        output = (data @ self.feedforward_weights) @ lateral_weights_inv.t()
+        self.current_output = output.detach()
+
         return output
 
-    def compute_update(self, x, label):
-        # Store previous gradient computation flag and disable gradient computation before computing update
-        torch.set_grad_enabled(True)
+    def local_update(self, data):
+        data_batch = data.reshape(data.size(0), -1)
+        w_xy = self.feedforward_weights.data.t().clone()
+        w_yy = self.lateral_weights.data.clone()
 
-        # Prepare the inputs
-        s = self.lrn_sim(x, self.weight)
-        y = self.lrn_act(s)
+        for sample in data_batch:
+            projection = w_xy @ sample
+            y = torch.linalg.solve(w_yy, projection)
 
-        s = s.permute(0, 2, 3, 1).contiguous().view(-1, self.weight.size(0))
-        y = y.permute(0, 2, 3, 1).contiguous().view(-1, self.weight.size(0))
-        x_unf = unfold_map2d(x, self.weight.size(2), self.weight.size(3))
-        x_unf = x_unf.permute(0, 2, 3, 1, 4).contiguous().view(s.size(0), 1, -1)
+            # 1) Update w_xy
+            step_w = self.learning_rate_fn(self.time_step.item())
+            yx_outer = y.unsqueeze(1) * sample.unsqueeze(0)
+            w_xy.mul_(1 - 2 * step_w).add_(2 * step_w * yx_outer)
 
-        if self.config.ff_activate:
-            self.ff_loss, logits = self.calc_ff_loss(y, label)
-            self.ff_grad = torch.autograd.grad(self.ff_loss, self.weight, retain_graph=True)[0]
+            # 2) Update w_yy
+            step_m = step_w / self.tau
+            yy_outer = y.unsqueeze(1) * y.unsqueeze(0)
+            w_yy.mul_(1 - step_m).add_(step_m * yy_outer)
 
-        torch.set_grad_enabled(False)
+            self.time_step += 1
 
-        if self.config.ff_activate:
-            label_mask = label.view(-1, 1)
-        else:
-            label_mask = torch.ones((x.shape[0], 1)).to(self.config.device)
+        with torch.no_grad():
+            self.feedforward_weights.data.copy_(w_xy.t())
+            self.lateral_weights.data.copy_(w_yy)
 
-        r = y * label_mask
-        r_abs = r.abs()
+        self.feedforward_weights.grad = None
+        self.lateral_weights.grad = None
 
-        # Compute delta_w (serialized version for computation of delta_w using less memory)
-        w = self.weight.view(1, self.weight.size(0), -1)
-        delta_w_avg = torch.zeros_like(self.weight.view(self.weight.size(0), -1))
-        x_bar = None
-
-        for i in range((self.weight.size(0) // self.config.HEBB_UPD_GRP) +
-                       (1 if self.weight.size(0) % self.config.HEBB_UPD_GRP != 0 else 0)):
-            start = i * self.config.HEBB_UPD_GRP
-            end = min((i + 1) * self.config.HEBB_UPD_GRP, self.weight.size(0))
-            w_i = w[:, start:end, :]
-            r_i = r.unsqueeze(2)[:, start:end, :]
-            r_abs_i = r_abs.unsqueeze(2)[:, start:end, :]
-            x_bar = torch.cumsum(r_i * w_i, dim=1) + (x_bar[:, -1, :].unsqueeze(1) if x_bar is not None else 0.)
-            x_bar = x_bar if x_bar is not None else 0.
-
-            delta_w_i = r_i * (x_unf - x_bar)
-            r_sum = r_abs_i.sum(0)
-            r_sum = r_sum + (r_sum == 0).float()
-            delta_w_avg[start:end, :] = (delta_w_i * r_abs_i).sum(0) / r_sum
-
-            # Compute recon loss
-            per_sample_err = (x_unf - x_bar).pow(2).sum(dim=(1, 2))  # [B]
-            mask1d = label_mask.view(x_unf.size(0)).float()  # [B]
-            recon_error = (per_sample_err * mask1d).sum()
-
-            self.total_recon_loss += recon_error
-            # if self.epoch == 3:
-            #     display_hybrid_images(x_bar[i, :, :].reshape(28, 28).detach().cpu().numpy(), x_unf[i, :, :].reshape(28, 28).detach().cpu().numpy(), x_unf[0, :, :].detach().cpu().numpy())
-
-        # Apply delta
-        self.delta_w_hebbian = delta_w_avg.view_as(self.weight)
-
-    def local_update(self):
-        hebbian_grad = self.alpha * (-self.delta_w_hebbian)
-        ff_grad = self.ff_grad if self.config.ff_activate else torch.zeros_like(hebbian_grad)
-
-        a = hebbian_grad.sum().item()
-        b = ff_grad.sum().item()
-        self.weight.grad = hebbian_grad + 1 * ff_grad
-        return self.total_recon_loss
-
-    def calc_ff_loss(self, z, labels):
-        HW = z.size(0) // labels.size(0)
-        z2 = z.view(labels.size(0), HW, z.size(1))
-        logits = z2.pow(2).sum(dim=2)
-        logits = logits - z.size(1)
-        labels_map = labels.view(labels.size(0), 1).expand(labels.size(0), HW).float()
-        ff_loss = F.binary_cross_entropy_with_logits(logits, labels_map)
-        return ff_loss, logits
+        recon_error = ((data - self.current_output @ self.feedforward_weights.t()) ** 2).sum()
+        return recon_error

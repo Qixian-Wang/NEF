@@ -5,6 +5,7 @@ from NEF.vae_rc.method.method_base import MethodBase
 from NEF.vae_rc.model.model import ReservoirComputing
 from NEF.vae_rc.model.Hebbian_model import HebbianLearning
 from sklearn.metrics import accuracy_score
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score, adjusted_rand_score, normalized_mutual_info_score
 
@@ -18,39 +19,21 @@ class MethodHebbian_RC(MethodBase, nn.Module):
         super(MethodHebbian_RC, self).__init__()
         self.config = config
 
-        self.ff_layers = nn.ModuleList([
-            HebbianLearning(config, in_channels=1,  out_size=16, kernel_size=28),
-            # nn.MaxPool2d(kernel_size=2, stride=2),
-            # HebbianLearning(config, in_channels=128, out_size=64, kernel_size=5),
-            # nn.MaxPool2d(kernel_size=2, stride=2),
-            # HebbianLearning(config, in_channels=64, out_size=16, kernel_size=3),
-        ])
+        self.hebb = HebbianLearning(config, input_dim=784,  out_size=10)
+
 
         self.rc = ReservoirComputing(config)
-        self.optimizer = torch.optim.Adam(self.ff_layers.parameters(), lr=1e-4)
+        self.optimizer = torch.optim.Adam(self.hebb.parameters(), lr=1e-4)
         self.writer = self.config.writer
         self.to(self.config.device)
 
-    def forward(self, data, label, epoch):
-        batch_size = data.size(0)
-        data = data.view(batch_size, 1, 28, 28)
+    def forward(self, data):
+        data = self.hebb(data)
 
-        for layer in self.ff_layers:
-            if isinstance(layer, HebbianLearning):
-                data = layer(data, label, epoch)
-                data = self.detach_norm(data)
-            else:
-                data = layer(data)
         return data
 
-    def detach_norm(self, z):
-        z = z.detach()
-        eps = 1e-8
-        z = z / (z.pow(2).mean(dim=[1, 2, 3], keepdim=True).sqrt() + eps)
-        return z
-
     def train(self, epoch: int, dataset, seed: int = None):
-        self.ff_layers.train()
+        self.hebb.train()
         recon_loss_total = 0
         kld_loss_total = 0
         latents = []
@@ -59,26 +42,23 @@ class MethodHebbian_RC(MethodBase, nn.Module):
         for batch_idx, (data, label, posneg_label) in enumerate(
             batch_generate(dataset, self.config.batch_size, mode="train", ff_data=True, config=self.config)
         ):
-            latent = self.forward(data, posneg_label, epoch)
+            latent = self.forward(data)
             latents.append(latent)
             labels.append(label)
             posneg_labels.append(posneg_label)
             self.optimizer.zero_grad()
-            for layer in self.ff_layers:
-                if isinstance(layer, HebbianLearning):
-                    recon_loss = layer.local_update()
-                    recon_loss_total += recon_loss.item()
+            recon_loss = self.hebb.local_update()
             self.optimizer.step()
 
         latents = torch.cat(latents, dim=0)
         posneg_labels = torch.cat(posneg_labels, dim=0)
         mask = (posneg_labels == 1).bool()
 
-        for i in range(self.config.num_hidden):
-            x_i = latents[:, i].squeeze(2)
-            x_i = x_i[mask]
-            mu_i, std_i = x_i.mean(), x_i.std()
-            kld_loss_total += 0.5 * torch.sum(mu_i.pow(2) + std_i.exp() - 1 - std_i).mean()
+        # for i in range(self.config.num_hidden):
+        #     x_i = latents[:, i].squeeze(2)
+        #     x_i = x_i[mask]
+        #     mu_i, std_i = x_i.mean(), x_i.std()
+        #     kld_loss_total += 0.5 * torch.sum(mu_i.pow(2) + std_i.exp() - 1 - std_i).mean()
 
         recon_loss_total = recon_loss_total / dataset.X_train.shape[0]
         kld_loss_total = recon_loss_total / dataset.X_train.shape[0]
@@ -90,12 +70,12 @@ class MethodHebbian_RC(MethodBase, nn.Module):
 
 
     def data_collection(self, dataset, mode: str):
-        self.ff_layers.eval()
+        self.hebb.eval()
         latents = []
         labels = []
         with torch.no_grad():
             for data, label, posneg_labels in batch_generate(dataset, self.config.batch_size, mode=mode, ff_data=False, config=self.config):
-                z = self.forward(data, label, 0)
+                z = self.forward(data)
                 latents.append(z)
                 labels.append(label)
 
@@ -122,15 +102,17 @@ class MethodHebbian_RC(MethodBase, nn.Module):
         mask = (y_true == 0)  # shape (N,), bool
         latent0 = latent_np[mask]
 
-        kmeans = KMeans(n_clusters=10, random_state=0).fit(latent_np)
-        labels_pred = kmeans.labels_
-        sil = silhouette_score(latent_np, labels_pred)
-        ari = adjusted_rand_score(y_true, labels_pred)
-        nmi = normalized_mutual_info_score(y_true, labels_pred)
-        self.writer.add_scalar("[validation] sil", sil, epoch)
-        self.writer.add_scalar("[validation] ari", ari, epoch)
-        self.writer.add_scalar("[validation] nmi", nmi, epoch)
-        print(f"Silhouette: {sil:.3f}, ARI: {ari:.3f}, NMI: {nmi:.3f}")
+        y_train = label_train.argmax(dim=1).cpu().numpy()
+        y_val = label_val.argmax(dim=1).cpu().numpy()
+
+        knn = KNeighborsClassifier(n_neighbors=10)
+        knn.fit(latent_train.detach().cpu().numpy(), y_train)
+
+        y_knn = knn.predict(latent_np)
+        knn_acc = accuracy_score(y_val, y_knn)
+
+        self.writer.add_scalar("[validation] knn_acc", knn_acc, epoch)
+        print(f"[validation] kNN Accuracy: {knn_acc * 100:.2f}%")
 
         # plt.figure(figsize=(10, 6))
         # x = np.linspace(-8, 8, 500)

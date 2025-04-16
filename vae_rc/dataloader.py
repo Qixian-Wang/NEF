@@ -1,17 +1,21 @@
 import os
 import torch.utils.data as data
 import torch
+from torch.utils.data import DataLoader, Subset, random_split
+from torch.utils.data import IterableDataset
+from torchvision import datasets, transforms
+
 import numpy as np
 from urllib import request
 import gzip
-from sklearn.preprocessing import OneHotEncoder
-from utils import lorenz_system, display_hybrid_images
-import config_file
 from scipy.integrate import odeint
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, Subset, random_split
-import cv2
+
+from NEF.vae_rc.utils import lorenz_system, display_hybrid_images
+
 from sktime.datasets import load_UCR_UEA_dataset
+from sklearn.preprocessing import OneHotEncoder
+import NEF.vae_rc.config_file as config_file
+
 
 class DatasetMNIST(data.Dataset):
     def __init__(self, configs):
@@ -159,6 +163,29 @@ class DatasetWafer:
         X_test, y_test = load_UCR_UEA_dataset("Wafer", split="test")
         X_train = np.vstack(X_train.values)  # shape = (N_train, L)
         y_train = y_train.values
+
+class ColoredGaussianDataset(IterableDataset):
+    def __init__(self, D=64, top_eigs=[7,6,5,4], low=(0,0.5), seed=None):
+        super().__init__()
+        self.D = D
+        self.top_eigs = top_eigs
+        self.low = low
+        if seed is not None:
+            np.random.seed(seed)
+        m = len(top_eigs)
+        Q, _ = np.linalg.qr(np.random.randn(D, D))
+        low_vals = np.random.uniform(low[0], low[1], size=D-m)
+        eigvals = np.concatenate([top_eigs, low_vals])
+        eigvals = np.sort(eigvals)[::-1]
+        self.C = Q @ np.diag(eigvals) @ Q.T
+        self.L = np.linalg.cholesky(self.C)
+
+    def __iter__(self):
+        while True:
+            z = np.random.randn(self.D)
+            x = self.L @ z
+            yield torch.from_numpy(x).float()
+
 
 def data_generator(configs):
     dataset = DatasetMNIST(configs)

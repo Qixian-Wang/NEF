@@ -18,12 +18,12 @@ class Configs(BaseModel):
     log_dir: str = os.path.join("runs", "test1")
     writer: SummaryWriter = SummaryWriter(log_dir=log_dir)
 
-    ff_activate: bool = True
+    ff_activate: bool = False
 
     # Parameters
     alphas: np.ndarray = np.linspace(1e-4, 10, 20)
-    batch_size: int = 64
-    num_epoch: int = 20
+    batch_size: int = 32
+    num_epoch: int = 1000
     data_length: int = 0
 
     # Param for PCA
@@ -31,15 +31,15 @@ class Configs(BaseModel):
 
     # Param for VAE
     VAE_learning_rate: float = 1e-3
-    num_hidden: int = 16
+    num_hidden: int = 4
 
     # Subset configuration
-    use_subset: bool = True
-    train_subset_size: int = 20000
-    test_subset_size: int = 10000
+    use_subset: bool = False
+    train_subset_size: int = 2000
+    test_subset_size: int = 1000
 
     # Param for Reservoir
-    num_neuron: int = 50
+    num_neuron: int = 100
     input_dim_ridge: int = 784
     spectral_radius: float = 0
     reservoir_sigma: float = 0.1
@@ -48,8 +48,10 @@ class Configs(BaseModel):
     # Param for Hebbian
     in_channels: int = 1
     kernel_size: int = 28
-    alpha: float = 3.0
-    HEBB_UPD_GRP: int = 8
+    HEBB_UPD_GRP: int = 1
+    gamma: float = 1
+    alpha: float = 100
+    max_iter: int = 100
 
 
 configs = Configs()
