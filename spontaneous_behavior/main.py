@@ -33,27 +33,32 @@ pre = '''ge += w
 post = '''Apost += dApost
     w = clip(w + lr*Apre, 0, gmax)'''
 
+stdp_depr = '''
+w : 1
+lr : 1 (shared)
+dApre/dt  = -Apre / taupre  : 1 (event-driven)
+dApost/dt = -Apost / taupost: 1 (event-driven)
+dres/dt = (1 - res)/tau_rec     : 1 (event-driven)
+'''
+
+pre_depr = f'''
+ge += w * res
+Apre += dApre
+w = clip(w + lr*Apost, 0, gmax)
+res *= (1 - {U})
+'''
+
+post_depr = '''
+Apost += dApost
+w = clip(w + lr*Apre, 0, gmax)
+'''
 
 class Model:
     def __init__(self, mode="spontaneous"):
         app = {}
         self.mode = mode
 
-        # input poisson generators
-        app['OU_noise'] = NeuronGroup(
-            n_input, '''
-            dr/dt      = -(r - mu_r)/tau_r + sigma_r*xi*sqrt(1/ms) : Hz
-            tau_r      : second    (constant)
-            mu_r       : Hz        (constant)
-            sigma_r    : Hz        (constant)
-            ''',
-            method='euler', name='OU_noise'
-        )
-        app['OU_noise'].tau_r = 2 * ms
-        app['OU_noise'].mu_r = 2 * Hz
-        app['OU_noise'].sigma_r = 2 * Hz
-        app['OU_noise'].r = app['OU_noise'].mu_r
-
+        # input poisson group
         app['poisson_group'] = PoissonGroup(
             n_input,
             rates=np.zeros(n_input) * Hz,
@@ -62,8 +67,10 @@ class Model:
 
         @network_operation(dt=defaultclock.dt)
         def update_rates():
+
             if self.mode == "spontaneous":
-                app['poisson_group'].rates = app['OU_noise'].r
+                rates = np.zeros(n_input) * Hz
+                app['poisson_group'].rates = rates
             elif self.mode == "patternA":
                 rates = np.zeros(n_input) * Hz
                 rates[:50] = 4 * Hz
@@ -79,9 +86,6 @@ class Model:
             elif self.mode == "patternD":
                 rates = np.zeros(n_input) * Hz
                 rates[70:125] = 4 * Hz
-                app['poisson_group'].rates = rates
-            elif self.mode == "off":
-                rates = np.zeros(n_input) * Hz
                 app['poisson_group'].rates = rates
 
         # excitatory group
@@ -99,30 +103,16 @@ class Model:
         app['excitatory_group'].sigma_v = 1.2 * mV
 
         # poisson generators one-to-all excitatory neurons with plastic connections
-        app['S1'] = Synapses(app['poisson_group'], app['excitatory_group'], stdp, on_pre=pre, on_post=post, method='euler', name='S1')
+        app['S1'] = Synapses(app['poisson_group'],
+                             app['excitatory_group'],
+                             stdp, on_pre=pre,
+                             on_post=post,
+                             method='euler',
+                             name='S1')
+
         app['S1'].connect(j = 'i')
         app['S1'].w = 'rand()*gmax'  # random weights initialisation
         app['S1'].lr = 0
-
-        stdp_depr = '''
-        w : 1
-        lr : 1 (shared)
-        dApre/dt  = -Apre / taupre  : 1 (event-driven)
-        dApost/dt = -Apost / taupost: 1 (event-driven)
-        dres/dt = (1 - res)/tau_rec     : 1 (event-driven)
-        '''
-
-        pre_depr = f'''
-        ge += w * res
-        Apre += dApre
-        w = clip(w + lr*Apost, 0, gmax)
-        res *= (1 - {U})
-        '''
-
-        post_depr = '''
-        Apost += dApost
-        w = clip(w + lr*Apre, 0, gmax)
-        '''
 
         # excitatory neurons to excitatory neurons
         app['S2'] = Synapses(app['excitatory_group'],
@@ -134,11 +124,13 @@ class Model:
                              name='S2')
         app['S2'].connect(condition='i != j', p=p_conn)
         app['S2'].delay = 5 * ms
+
         mean = np.log(0.5*gmax)
         sigma = 1.0
         app['S2'].w = clip(lognormal(mean, sigma, size=len(app['S2'].w)), 0, gmax)
         app['S2'].lr = 10
 
+        # Monitors
         app['poisson_monitor'] = StateMonitor(app['poisson_group'], ['rates'], record=True, name='poisson_monitor')
         app['excitatory_spike'] = SpikeMonitor(app['excitatory_group'], name='excitatory_spike')
         app['ESM'] = StateMonitor(app['excitatory_group'], ['v'], record=True, name='ESM')
@@ -146,7 +138,6 @@ class Model:
         app['S2M'] = StateMonitor(app['S2'], ['w', 'Apre', 'Apost'], record=range(5), name='S2M')
 
         self.net = Network(app.values(), update_rates)
-        self.net.run(0 * second)
 
 
     def __getitem__(self, key):
@@ -159,7 +150,7 @@ class Model:
         self.net.run(duration * second)
 
 
-model = Model(mode="off")
+model = Model(mode="spontaneous")
 time_spon = 20
 time_sti = 1
 model.train(duration=time_spon)
