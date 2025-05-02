@@ -1,26 +1,26 @@
-from utils import *
+from NEF.spontaneous_behavior.utils import *
 from numpy.random import lognormal
 
 defaultclock.dt = 1*ms
 seed(42)
-n_input = 64
-num_neuron = 400
+n_input = 200
+num_neuron = 200
 
 v_rest_e = -65. * mV
 v_reset_e = -75. * mV
 v_thresh_e = -50. * mV
 
-K = 60
+K = 4
 p_conn = K / (num_neuron - 1)
 taupre = 20 * ms
 taupost = taupre
-gmax = 0.4
+gmax = 1.9
 dApre = .01
 dApost = -dApre * taupre / taupost * 1
 dApost *= gmax
 dApre *= gmax
-U = 0.8
-tau_rec = 600*ms
+U = 0.3
+tau_rec = 300*ms
 
 # Apre and Apost - presynaptic and postsynaptic traces
 stdp = '''w : 1
@@ -66,19 +66,19 @@ class Model:
                 app['poisson_group'].rates = app['OU_noise'].r
             elif self.mode == "patternA":
                 rates = np.zeros(n_input) * Hz
-                rates[:16] = 10 * Hz
+                rates[:50] = 4 * Hz
                 app['poisson_group'].rates = rates
             elif self.mode == "patternB":
                 rates = np.zeros(n_input) * Hz
-                rates[4:20] = 10 * Hz
+                rates[25:75] = 4 * Hz
                 app['poisson_group'].rates = rates
             elif self.mode == "patternC":
                 rates = np.zeros(n_input) * Hz
-                rates[8:24] = 10 * Hz
+                rates[50:100] = 4 * Hz
                 app['poisson_group'].rates = rates
             elif self.mode == "patternD":
                 rates = np.zeros(n_input) * Hz
-                rates[12:28] = 10 * Hz
+                rates[70:125] = 4 * Hz
                 app['poisson_group'].rates = rates
             elif self.mode == "off":
                 rates = np.zeros(n_input) * Hz
@@ -95,14 +95,14 @@ class Model:
         app['excitatory_group'] = NeuronGroup(num_neuron, neuron_e, threshold='v>v_thresh_e', refractory=5 * ms, reset='v=v_reset_e',
                                               method='euler', name='excitatory_group')
         app['excitatory_group'].v = v_rest_e
-        app['excitatory_group'].sigma_ge = 0.2
+        app['excitatory_group'].sigma_ge = 0
         app['excitatory_group'].sigma_v = 1.2 * mV
 
         # poisson generators one-to-all excitatory neurons with plastic connections
         app['S1'] = Synapses(app['poisson_group'], app['excitatory_group'], stdp, on_pre=pre, on_post=post, method='euler', name='S1')
-        app['S1'].connect()
+        app['S1'].connect(j = 'i')
         app['S1'].w = 'rand()*gmax'  # random weights initialisation
-        app['S1'].lr = 1
+        app['S1'].lr = 0
 
         stdp_depr = '''
         w : 1
@@ -137,7 +137,7 @@ class Model:
         mean = np.log(0.5*gmax)
         sigma = 1.0
         app['S2'].w = clip(lognormal(mean, sigma, size=len(app['S2'].w)), 0, gmax)
-        app['S2'].lr = 1.0
+        app['S2'].lr = 10
 
         app['poisson_monitor'] = StateMonitor(app['poisson_group'], ['rates'], record=True, name='poisson_monitor')
         app['excitatory_spike'] = SpikeMonitor(app['excitatory_group'], name='excitatory_spike')
@@ -159,12 +159,22 @@ class Model:
         self.net.run(duration * second)
 
 
-model = Model(mode="spontaneous")
-time_spon = 5
+model = Model(mode="off")
+time_spon = 20
 time_sti = 1
 model.train(duration=time_spon)
-model.set_mode("off")
-model.train(duration=10)
+model.set_mode("patternA")
+model.train(duration=5)
+# model.set_mode("patternB")
+# model.train(duration=5)
+# model.set_mode("patternC")
+# model.train(duration=5)
+# model.set_mode("patternA")
+# model.train(duration=5)
+# model.set_mode("patternB")
+# model.train(duration=5)
+# model.set_mode("patternC")
+# model.train(duration=5)
 
 # sample_number = 5
 # rate_list = []
@@ -186,9 +196,9 @@ model.train(duration=10)
 #         model.train(duration=time_sti)
 #         rate = weight_rate_spikes(model, T=time_sti*second)
 #         rate_list.append(rate)
-
+#
 # rate_list = np.array(rate_list)
-# np.save('rate_list3.npy', rate_list)
+# np.save('rate_list2.npy', rate_list)
 # plot_w(model["S2M"])
 plot_rates(model['excitatory_group_rate'])
 plot_spikes(model['excitatory_spike'])
