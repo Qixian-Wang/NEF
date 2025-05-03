@@ -2,7 +2,7 @@ from NEF.spontaneous_behavior.utils import *
 from numpy.random import lognormal
 
 class Model:
-    def __init__(self, hebbian_lr, synaptic_delay, refractory, sigma_ge=0, sigma_v=0.0, stimulation_amp=4, mode="spontaneous"):
+    def __init__(self, hebbian_lr, synaptic_delay, refractory, sigma_ge=0, sigma_i=0.0, stimulation_amp=4, mode="spontaneous"):
         app = {}
         self.mode = mode
 
@@ -24,30 +24,43 @@ class Model:
                 app['poisson_group'].rates = rates
             elif self.mode == "patternB":
                 rates = np.zeros(n_input) * Hz
-                rates[25:75] = stimulation_amp * Hz
+                rates[50:100] = stimulation_amp * Hz
                 app['poisson_group'].rates = rates
             elif self.mode == "patternC":
                 rates = np.zeros(n_input) * Hz
-                rates[50:100] = stimulation_amp * Hz
+                rates[100:150] = stimulation_amp * Hz
                 app['poisson_group'].rates = rates
             elif self.mode == "patternD":
                 rates = np.zeros(n_input) * Hz
-                rates[70:125] = stimulation_amp * Hz
+                rates[150:] = stimulation_amp * Hz
                 app['poisson_group'].rates = rates
 
         # excitatory group
         neuron_e = '''
-            dv/dt = (ge*(0*mV-v) + (v_rest_e-v))/ (25*ms) + sigma_v * xi_v * sqrt(1/ms): volt
-            dge/dt = (-ge + sigma_ge * xi_e * sqrt(ms)) / (5*ms) : 1
-            sigma_ge : 1
-            sigma_v : volt
-            '''
+        dv/dt = (ge*(0*mV - v) + (v_rest_e - v)) / tau_m + I_ou/C : volt
+        dge/dt = (-ge + sigma_ge * xi_e * sqrt(ms)) / tau_syn : 1
+        dI_ou/dt = (-I_ou + amplitude * sin(2*pi*freq*t))/tau_ou + sigma_i * xi_i * sqrt(1/ms) : amp
+        sigma_ge : 1
+        sigma_i : amp
+        amplitude : amp
+        freq : Hz
+        tau_ou : second
+        tau_m : second
+        tau_syn : second
+        C : farad
+        '''
 
         app['excitatory_group'] = NeuronGroup(num_neuron, neuron_e, threshold='v>v_thresh_e', refractory=refractory * ms, reset='v=v_reset_e',
                                               method='euler', name='excitatory_group')
         app['excitatory_group'].v = v_rest_e
         app['excitatory_group'].sigma_ge = sigma_ge
-        app['excitatory_group'].sigma_v = sigma_v * mV
+        app['excitatory_group'].sigma_i = sigma_i * pA
+        app['excitatory_group'].tau_m = 25 * ms
+        app['excitatory_group'].tau_syn = 5 * ms
+        app['excitatory_group'].amplitude = 30 * pA  # amplitude of periodic modulation
+        app['excitatory_group'].freq = 1 * Hz  # frequency of modulation
+        app['excitatory_group'].tau_ou = 30 * ms
+        app['excitatory_group'].C = 200 * pF
 
         # poisson generators one-to-all excitatory neurons with plastic connections
         app['S1'] = Synapses(app['poisson_group'],
@@ -59,7 +72,7 @@ class Model:
 
         app['S1'].connect(j = 'i')
         app['S1'].w = 'rand()*gmax'  # random weights initialisation
-        app['S1'].lr = 0
+        app['S1'].lr = hebbian_lr
 
         # excitatory neurons to excitatory neurons
         app['S2'] = Synapses(app['excitatory_group'],
@@ -107,17 +120,17 @@ if __name__ == '__main__':
     v_reset_e = -75. * mV
     v_thresh_e = -50. * mV
 
-    K = 4
+    K = 20
     p_conn = K / (num_neuron - 1)
     taupre = 20 * ms
     taupost = taupre
-    gmax = 1.7
+    gmax = 0.3
     dApre = .01
-    dApost = -dApre * taupre / taupost * 1
+    dApost = -dApre * taupre / taupost * 0.8
     dApost *= gmax
     dApre *= gmax
     U = 0.3
-    tau_rec = 300 * ms
+    tau_rec = 600 * ms
 
     # Apre and Apost - presynaptic and postsynaptic traces
     stdp = '''
@@ -154,46 +167,55 @@ if __name__ == '__main__':
     w = clip(w + lr*Apre, 0, gmax)
     '''
 
-    model = Model(hebbian_lr=0, synaptic_delay=0, refractory=5, sigma_ge=0, sigma_v=1.2, stimulation_amp=4, mode="spontaneous")
-    time_spon = 30
+    model = Model(hebbian_lr=2, synaptic_delay=5, refractory=5, sigma_ge=0, sigma_i=15, stimulation_amp=30, mode="spontaneous")
+    time_spon = 10
     time_sti = 1
     model.train(duration=time_spon)
     # model.set_mode("patternA")
-    # model.train(duration=5)
+    # model.train(duration=10)
     # model.set_mode("patternB")
-    # model.train(duration=5)
+    # model.train(duration=10)
     # model.set_mode("patternC")
-    # model.train(duration=5)
+    # model.train(duration=10)
     # model.set_mode("patternA")
-    # model.train(duration=5)
+    # model.train(duration=10)
     # model.set_mode("patternB")
-    # model.train(duration=5)
+    # model.train(duration=10)
     # model.set_mode("patternC")
-    # model.train(duration=5)
+    # model.train(duration=10)
+    # model.set_mode("patternA")
+    # model.train(duration=10)
+    # model.set_mode("patternB")
+    # model.train(duration=10)
+    # model.set_mode("patternC")
+    # model.train(duration=10)
 
-    # sample_number = 5
-    # rate_list = []
-    # for mode in ["patternA", "patternB", "patternC", "patternD"]:
-    #     model.set_mode(mode)
-    #     for k in range(sample_number):
-    #         model.train(duration=time_sti)
-    #         rate = weight_rate_spikes(model, T=time_sti*second)
-    #         rate_list.append(rate)
-    # for mode in ["patternA", "patternB", "patternC", "patternD"]:
-    #     model.set_mode(mode)
-    #     for k in range(sample_number):
-    #         model.train(duration=time_sti)
-    #         rate = weight_rate_spikes(model, T=time_sti*second)
-    #         rate_list.append(rate)
-    # for mode in ["patternA", "patternB", "patternC", "patternD"]:
-    #     model.set_mode(mode)
-    #     for k in range(sample_number):
-    #         model.train(duration=time_sti)
-    #         rate = weight_rate_spikes(model, T=time_sti*second)
-    #         rate_list.append(rate)
-    #
-    # rate_list = np.array(rate_list)
-    # np.save('rate_list2.npy', rate_list)
+    sample_number = 20
+    rate_list = []
+    iteration = 3
+    for iter in range(iteration):
+        for mode in ["patternA", "patternB", "patternC", "patternD"]:
+            model.set_mode(mode)
+            for k in range(sample_number):
+                model.train(duration=time_sti)
+                rate = weight_rate_spikes(model, T=time_sti*second)
+                rate_list.append(rate)
+
+    model.set_mode('spontaneous')
+    model.train(duration=150)
+
+    iteration = 3
+    for iter in range(iteration):
+        for mode in ["patternA", "patternB", "patternC", "patternD"]:
+            model.set_mode(mode)
+            for k in range(sample_number):
+                model.train(duration=time_sti)
+                rate = weight_rate_spikes(model, T=time_sti*second)
+                rate_list.append(rate)
+
+    print("simulation finished")
+    rate_list = np.array(rate_list)
+    np.save('rate_list5.npy', rate_list)
     # plot_w(model["S2M"])
     plot_rates(model['excitatory_group_rate'])
     plot_spikes(model['excitatory_spike'])

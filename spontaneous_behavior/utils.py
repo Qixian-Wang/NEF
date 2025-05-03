@@ -54,3 +54,4 @@ def weight_rate_spikes(model, T):
 
     rates = spike_counts / T  # in Hz
     return rates
+
