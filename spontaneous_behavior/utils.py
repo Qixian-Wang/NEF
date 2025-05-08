@@ -6,6 +6,9 @@ def plot_w(S1M):
     subplot(311)
     plot(S1M.t / ms, S1M.w.T / 0.5)
     ylabel('w / wmax')
+    subplot(312)
+    plot(S1M.t / ms, S1M.ge.T / 0.5)
+    ylabel('w / wmax')
     show()
 #
 # def plot_v(ESM, ISM, neuron=13):

@@ -1,80 +1,41 @@
 from NEF.spontaneous_behavior.utils import *
-from numpy.random import lognormal
+from numpy.random import lognormal, default_rng
 from sklearn.decomposition import PCA
 
 class Model:
-    def __init__(self, hebbian_lr, synaptic_delay, refractory, sigma_ge=0, sigma_i=0.0, stimulation_amp=4, mode="spontaneous"):
-        app = {}
-        self.mode = mode
+    def __init__(self, hebbian_lr, refractory, sigma_i=0.0, stimulation_amp=4):
+        self.app = {}
+        self.stimulation_amp = stimulation_amp
 
         # input poisson group
-        app['poisson_group'] = PoissonGroup(
+        self.app['poisson_group'] = PoissonGroup(
             n_input,
             rates=np.zeros(n_input) * Hz,
             name='poisson_group'
         )
-
-        @network_operation(dt=defaultclock.dt)
-        def update_rates():
-            if self.mode == "spontaneous":
-                rates = np.zeros(n_input) * Hz
-                app['poisson_group'].rates = rates
-            elif self.mode == "patternA":
-                rates = np.zeros(n_input) * Hz
-                rates[:50] = stimulation_amp * Hz
-                app['poisson_group'].rates = rates
-            elif self.mode == "patternB":
-                rates = np.zeros(n_input) * Hz
-                rates[50:100] = stimulation_amp * Hz
-                app['poisson_group'].rates = rates
-            elif self.mode == "patternC":
-                rates = np.zeros(n_input) * Hz
-                rates[100:150] = stimulation_amp * Hz
-                app['poisson_group'].rates = rates
-            elif self.mode == "patternD":
-                rates = np.zeros(n_input) * Hz
-                rates[150:200] = stimulation_amp * Hz
-                app['poisson_group'].rates = rates
-            elif self.mode == "noise":
-                rates = stimulation_amp * np.random.rand(n_input) * Hz
-                app['poisson_group'].rates = rates
-            elif self.mode == "stimulate":
-                rates = stimulation_amp * Hz
-                app['poisson_group'].rates = rates
-            elif self.mode == "colored_gaussian":
-                data = ColoredGaussianDataset(D=num_neuron)
-                data = data + data.min() + 10
-                app['poisson_group'].rates = data * Hz
+        self.rates = np.zeros(n_input) * Hz
+        self.app['poisson_group'].rates = self.rates
 
         # excitatory group
         neuron_e = '''
-        dv/dt = (ge*(0*mV - v) + (v_rest_e - v)) / tau_m + I_ou/C : volt
-        dge/dt = (-ge + sigma_ge * xi_e * sqrt(ms)) / tau_syn : 1
-        dI_ou/dt = (-I_ou + amplitude * sin(2*pi*freq*t))/tau_ou + sigma_i * xi_i * sqrt(1/ms) : amp
+        dv/dt = (ge*(0*mV - v) + (v_rest_e - v)) / tau_m + (- theta * v + sigma_i * xi_i * sqrt(ms)) / tau_m: volt
+        dge/dt = -ge / tau_syn : 1
         dr/dt  = -r/tau_r : Hz
-        sigma_ge : 1
-        sigma_i : amp
-        amplitude : amp
-        freq : Hz
-        tau_ou : second
+        sigma_i : volt
         tau_m : second
         tau_syn : second
         tau_r   : second
-        C : farad
+        theta : 1
         '''
 
-        app['excitatory_group'] = NeuronGroup(num_neuron, neuron_e, threshold='v>v_thresh_e', refractory=refractory * ms, reset='v=v_reset_e; r+=1/tau_r',
+        self.app['excitatory_group'] = NeuronGroup(num_neuron, neuron_e, threshold='v>v_thresh_e', refractory=refractory * ms, reset='v=v_reset_e; r+=1/tau_r',
                                               method='euler', name='excitatory_group')
-        app['excitatory_group'].v = v_rest_e
-        app['excitatory_group'].sigma_ge = sigma_ge
-        app['excitatory_group'].sigma_i = sigma_i * pA
-        app['excitatory_group'].tau_m = 25 * ms
-        app['excitatory_group'].tau_syn = 5 * ms
-        app['excitatory_group'].amplitude = 5 * pA  # amplitude of periodic modulation
-        app['excitatory_group'].freq = 0.5 * Hz  # frequency of modulation
-        app['excitatory_group'].tau_ou = 30 * ms
-        app['excitatory_group'].C = 200 * pF
-        app['excitatory_group'].tau_r = 50 * ms
+        self.app['excitatory_group'].v = v_rest_e
+        self.app['excitatory_group'].sigma_i = sigma_i * mV
+        self.app['excitatory_group'].tau_m = 25 * ms
+        self.app['excitatory_group'].tau_syn = 5 * ms
+        self.app['excitatory_group'].tau_r = 50 * ms
+        self.app['excitatory_group'].theta = 1e-1
 
         oja = Equations('''
         w  : 1
@@ -82,17 +43,17 @@ class Model:
         ''')
 
         # poisson generators one-to-all excitatory neurons with plastic connections
-        app['S1'] = Synapses(app['poisson_group'],
-                             app['excitatory_group'],
+        self.app['S1'] = Synapses(self.app['poisson_group'],
+                             self.app['excitatory_group'],
                              model=oja,
                              on_pre='ge_post += w',
                              method='euler',
                              name='S1')
 
-        app['S1'].connect(j = 'i')
-        app['S1'].w = 'rand()*gmax'  # random weights initialisation
-        app['S1'].lr = hebbian_lr
-        app['S1'].run_regularly('''
+        self.app['S1'].connect(j = 'i')
+        self.app['S1'].w = 'rand()*gmax'  # random weights initialisation
+        self.app['S1'].lr = hebbian_lr
+        self.app['S1'].run_regularly('''
         x = rates_pre/Hz
         y = r_post/Hz
         w += lr*(y*x - y**2*w)*(dt/second)
@@ -101,18 +62,16 @@ class Model:
 
 
         # excitatory neurons to excitatory neurons
-        app['S2'] = Synapses(app['excitatory_group'],
-                             app['excitatory_group'],
+        self.app['S2'] = Synapses(self.app['excitatory_group'],
+                             self.app['excitatory_group'],
                              model=oja,
                              on_pre='ge_post += w',
                              method='euler',
                              name='S2')
-        app['S2'].connect(condition='i != j', p=p_conn)
-        mean = np.log(0.5*gmax)
-        sigma = 1.0
-        app['S2'].w = 'rand()*gmax'
-        app['S2'].lr = hebbian_lr
-        app['S2'].run_regularly('''
+        self.app['S2'].connect(condition='i != j', p=p_conn)
+        self.app['S2'].w = 'rand()*gmax'
+        self.app['S2'].lr = hebbian_lr
+        self.app['S2'].run_regularly('''
         x = r_pre/Hz
         y = r_post/Hz
         w += lr*(y*x - y**2*w)*(dt/second)
@@ -120,20 +79,40 @@ class Model:
         ''', dt=defaultclock.dt)
 
         # Monitors
-        app['poisson_monitor'] = StateMonitor(app['poisson_group'], ['rates'], record=True, name='poisson_monitor')
-        app['excitatory_spike'] = SpikeMonitor(app['excitatory_group'], name='excitatory_spike')
-        app['ESM'] = StateMonitor(app['excitatory_group'], ['v'], record=True, name='ESM')
-        app['ERM'] = PopulationRateMonitor(app['excitatory_group'], name='excitatory_group_rate')
-        app['S2M'] = StateMonitor(app['S2'], ['w'], record=range(5), name='S2M')
+        self.app['poisson_monitor'] = StateMonitor(self.app['poisson_group'], ['rates'], record=True, name='poisson_monitor')
+        self.app['excitatory_spike'] = SpikeMonitor(self.app['excitatory_group'], name='excitatory_spike')
+        self.app['ESM'] = StateMonitor(self.app['excitatory_group'], ['v'], record=True, name='ESM')
+        self.app['ERM'] = PopulationRateMonitor(self.app['excitatory_group'], name='excitatory_group_rate')
+        self.app['S2M'] = StateMonitor(self.app['S2'], ['w', 'ge'], record=range(5), name='S2M')
 
-        self.net = Network(app.values(), update_rates)
+        self.net = Network(self.app.values())
 
 
     def __getitem__(self, key):
         return self.net[key]
 
-    def set_mode(self, new_mode):
-        self.mode = new_mode
+    def set_mode(self, new_mode, input_signal):
+        if new_mode == "spontaneous":
+            rates = np.zeros(n_input) * Hz
+            self.app['poisson_group'].rates = rates
+        elif new_mode == "patternA":
+            rates = np.zeros(n_input) * Hz
+            rates[:50] = self.stimulation_amp * Hz
+            self.app['poisson_group'].rates = rates
+        elif new_mode == "patternB":
+            rates = np.zeros(n_input) * Hz
+            rates[50:100] = self.stimulation_amp * Hz
+            self.app['poisson_group'].rates = rates
+        elif new_mode == "patternC":
+            rates = np.zeros(n_input) * Hz
+            rates[100:150] = self.stimulation_amp * Hz
+            self.app['poisson_group'].rates = rates
+        elif new_mode == "patternD":
+            rates = np.zeros(n_input) * Hz
+            rates[150:200] = self.stimulation_amp * Hz
+            self.app['poisson_group'].rates = rates
+        elif new_mode == "random_channel":
+            self.app['poisson_group'].rates = input_signal * Hz
 
     def train(self, duration):
         self.net.run(duration * second)
@@ -141,9 +120,17 @@ class Model:
 
 if __name__ == '__main__':
     defaultclock.dt = 1 * ms
-    seed(42)
     n_input = 200
     num_neuron = 200
+    num_catagoty = 8
+    rate_list = []
+    for catagory in range(num_catagoty):
+        rates = np.zeros(n_input)
+        ones_idx = np.random.choice(n_input, size=10, replace=False)
+        rates[ones_idx] = 15 * Hz
+        rate_list.append(rates)
+
+    seed(42)
 
     v_rest_e = -65. * mV
     v_reset_e = -75. * mV
@@ -151,20 +138,20 @@ if __name__ == '__main__':
 
     K = 20
     p_conn = K / num_neuron
-    gmax = 0.5
+    gmax = 0.4
 
-    model = Model(hebbian_lr=1e-2, synaptic_delay=5, refractory=5, sigma_ge=0, sigma_i=15, stimulation_amp=30, mode="spontaneous")
+    model = Model(hebbian_lr=1e-2, refractory=5, sigma_i=20, stimulation_amp=20)
     time_spon = 10
     time_sti = 1
 
-    model.train(duration=time_spon)
-    # model.set_mode("patternA")
+    # model.train(duration=time_spon)
+    # model.set_mode("random_channel", rates1)
     # model.train(duration=10)
-    # model.set_mode("patternB")
+    # model.set_mode("random_channel", rates2)
     # model.train(duration=10)
-    # model.set_mode("patternC")
+    # model.set_mode("random_channel", rates3)
     # model.train(duration=10)
-    # model.set_mode("patternD")
+    # model.set_mode("random_channel", rates4)
     # model.train(duration=10)
     # model.set_mode("patternA")
     # model.train(duration=10)
@@ -189,17 +176,17 @@ if __name__ == '__main__':
     # print(b - a)
 
 
-    iteration = 50
+    iteration = 100
     for iter in range(iteration):
-        for mode in ["patternA", "patternB", "patternC", "patternD"]:
-            model.set_mode(mode)
+        for rate in rate_list:
+            model.set_mode('random_channel', rate)
             model.train(duration=1)
 
     spike_mon = model['excitatory_spike']
     i_arr = spike_mon.i
     t_arr = spike_mon.t / second
-    np.save('spike_i3.npy', i_arr)
-    np.save('spike_t3.npy', t_arr)
+    np.save('spike_i2.npy', i_arr)
+    np.save('spike_t2.npy', t_arr)
 
     # model.set_mode('noise')
     # model.train(duration=0)
@@ -216,33 +203,7 @@ if __name__ == '__main__':
     # print("simulation finished")
     # rate_list = np.array(rate_list)
     # np.save('rate_list7.npy', rate_list)
+
     plot_w(model["S2M"])
     plot_rates(model['excitatory_group_rate'])
     plot_spikes(model['excitatory_spike'])
-
-    pattern = np.zeros((num_neuron, 4))
-    pattern[:50, 0] = 1
-    pattern[50:100, 1] = 1
-    pattern[100:150, 2] = 1
-    pattern[150:200, 3] = 1
-    mean_p = pattern.mean(axis=1, keepdims=True)
-    pattern_centered = pattern - mean_p
-    C_in = (pattern @ pattern.T) / 4
-    eigvals, eigvecs = np.linalg.eigh(C_in)
-    idx = np.argsort(eigvals)[::-1]
-    eigvals, eigvecs = eigvals[idx], eigvecs[:, idx]
-    print("C_in top 4 eigenvalues:", eigvals[:10])
-
-
-    W = np.zeros((num_neuron, num_neuron))
-    W[model['S2'].i, model['S2'].j] = model['S2'].w
-    Wc = W - W.mean(axis=0, keepdims=True)
-
-    pca = PCA(n_components=5)
-    pcs = pca.fit_transform(W)
-    print("Explained variance ratio:", pca.explained_variance_ratio_)
-
-    C = Wc.T @ Wc
-    eigvals, eigvecs = np.linalg.eigh(C)
-    eigvals = np.sort(eigvals)[::-1]
-    print(eigvals)
