@@ -3,8 +3,9 @@ import matplotlib.pyplot as plt
 import os
 import math
 
-def plot_figures(model, spike_time, group_index, n_per_group, n_groups, dt_bin=2*ms, smooth_width=200*ms):
-    save_path = 'plots'
+def plot_figures(rank, model, spike_time, group_index, n_groups, dt_bin=2*ms,
+                  smooth_width=200*ms, figure_save_path=None):
+    save_path = f'{figure_save_path}/plots_rank={rank}'
     os.makedirs(save_path, exist_ok=True)
 
     # Plot weight
@@ -29,7 +30,7 @@ def plot_figures(model, spike_time, group_index, n_per_group, n_groups, dt_bin=2
         t_all_masked = t_all[mask]
         i_all_masked = i_all[mask]
 
-        group_all = i_all_masked // n_per_group
+        group_all = i_all_masked
 
         t_all_ms = t_all_masked / ms
         dt_bin_ms = dt_bin / ms
@@ -41,7 +42,7 @@ def plot_figures(model, spike_time, group_index, n_per_group, n_groups, dt_bin=2
             counts[g], _ = np.histogram(t_all_ms[mask], bins=bins)
 
         bin_sec = dt_bin_ms / 1000.0
-        rates = counts / (n_per_group * bin_sec)
+        rates = counts / bin_sec
 
         window_bins = int((smooth_width / ms) / dt_bin_ms)
         if window_bins > 1:
@@ -61,17 +62,18 @@ def plot_figures(model, spike_time, group_index, n_per_group, n_groups, dt_bin=2
 
     # Plot rastor plot
     for fig_index in range(math.ceil(max(spike_time)/10)):
-        mask = (spike_time >= fig_index * 10) & (spike_time <= (fig_index+1) * 10)
-        spike_time_masked = spike_time[mask]
-        group_index_maksed = group_index[mask]
+        if fig_index % 1 == 0:
+            mask = (spike_time >= fig_index * 10) & (spike_time <= (fig_index+1) * 10)
+            spike_time_masked = spike_time[mask]
+            group_index_maksed = group_index[mask]
 
-        plt.figure(figsize=(12, 4))
-        plt.plot(spike_time_masked / ms, group_index_maksed, '.', color='r', markersize=1)
-        plt.xlabel('Time (ms)')
-        plt.ylabel('Group index')
-        plt.title('Spike raster (grouped)')
-        plt.savefig(os.path.join(save_path, f'rastor_plot{fig_index}.png'), format='png', dpi=600)
-        plt.close('all')
+            plt.figure(figsize=(12, 4))
+            plt.plot(spike_time_masked / ms, group_index_maksed, '.', color='r', markersize=1)
+            plt.xlabel('Time (ms)')
+            plt.ylabel('Group index')
+            plt.title('Spike raster (grouped)')
+            plt.savefig(os.path.join(save_path, f'rastor_plot{fig_index}.png'), format='png', dpi=600)
+            plt.close('all')
 
 
 # def plot_v(ESM, ISM, neuron=13):
@@ -129,9 +131,10 @@ def smooth_rate_per_neuron(spike_i, spike_t, num_neurons,
                            remove_burst=False
                            ):
 
+    rates_list = []
     for stimulation in range(len(stim_start)):
         t_start = stim_start[stimulation]
-        t_end = stim_start[stimulation] + stim_duration[stimulation]
+        t_end = stim_start[stimulation] + stim_duration
 
         bins = np.arange(t_start, t_end + dt, dt)
         times = bins[:-1] + dt/2
@@ -144,7 +147,8 @@ def smooth_rate_per_neuron(spike_i, spike_t, num_neurons,
         n_bins = len(bins) - 1
         rates_sm = np.zeros((num_neurons, n_bins))
 
-        for nid in range(num_neurons):
+        for idx in range(num_neurons):
+            nid = idx 
             mask = (spike_i == nid) & (spike_t >= t_start) & (spike_t < t_end)
             ts = spike_t[mask]
             counts, _ = np.histogram(ts, bins=bins)
@@ -158,39 +162,64 @@ def smooth_rate_per_neuron(spike_i, spike_t, num_neurons,
             inst_rate[inst_rate > threshold] -= avalanche_average if remove_burst else 0
             inst_rate[inst_rate < 0] = 0
 
-            rates_sm[nid, :] = np.convolve(inst_rate, gauss, mode='same')
+            rates_sm[idx, :] = np.convolve(inst_rate, gauss, mode='same')
 
         rates_avg = rates_sm.mean(axis=1)
         # plt.plot(rates_sm[0, :])
         # plt.plot(rates_sm[180, :])
         # plt.show()
-        return rates_avg, times, rates_sm
+        rates_list.append(rates_sm)
+    return rates_list
 
-def compute_rates(spike_mon, n_per_group, n_groups, dt_bin=10*ms, smooth_width=200*ms):
-    t_all = spike_mon.t
-    i_all = spike_mon.i
+def compute_rates(model, dt_bin=10*ms, smooth_width=200*ms):
+    monitor = model['excitatory_spike']
+    groups = model.neuron_group
+    spike_trains = monitor.spike_trains()
 
-    group_all = i_all // n_per_group
+    times_list = []
+    group_id_list = []
+    for g in range(len(groups)):
+        neuron_list = groups[g]
+        if len(neuron_list) == 0:
+            continue
+        group_times = np.concatenate([spike_trains[i] for i in neuron_list])
+        group_ids = np.full_like(group_times, g, dtype=int)
+        times_list.append(group_times)
+        group_id_list.append(group_ids)
 
-    t_all_ms = t_all / ms
-    dt_bin_ms = dt_bin / ms
-    t_max = t_all_ms.max()
+    if len(times_list) == 0:
+        return np.array([]), np.array([])
+    
+    all_times = np.concatenate(times_list)
+    all_groups = np.concatenate(group_id_list)
+    
+    # 转换为毫秒并创建时间bins - 确保去除Brian2单位
+    t_all_ms = np.array(all_times / ms)  # 确保转换为纯数值
+    dt_bin_ms = float(dt_bin / ms)       # 确保转换为纯数值
+    t_max = t_all_ms.max() if len(t_all_ms) > 0 else dt_bin_ms
     bins = np.arange(0, t_max + dt_bin_ms, dt_bin_ms)
-
+    
+    # 计算每个组的计数
+    n_groups = len(groups)
     counts = np.zeros((n_groups, len(bins)-1))
     for g in range(n_groups):
-        mask = (group_all == g)
-        counts[g], _ = np.histogram(t_all_ms[mask], bins=bins)
-
+        mask = (all_groups == g)
+        if np.sum(mask) > 0:
+            counts[g], _ = np.histogram(t_all_ms[mask], bins=bins)
+    
+    # 计算发放率
     bin_sec = dt_bin_ms / 1000.0
+    n_per_group = len(groups[0]) if len(groups) > 0 and len(groups[0]) > 0 else 1
     rates = counts / (n_per_group * bin_sec)  # shape (n_groups, n_time_bins)
 
-    window_bins = int((smooth_width/ms) / dt_bin_ms)
+    # 平滑处理
+    window_bins = int(float(smooth_width/ms) / dt_bin_ms)
     if window_bins > 1:
         kernel = np.ones(window_bins) / window_bins
         rates_smooth = np.array([np.convolve(r, kernel, mode='same') for r in rates])
     else:
         rates_smooth = rates
+    
     bin_centers_ms = (bins[:-1] + bins[1:]) / 2.0
     t_seconds = bin_centers_ms / 1000.0
 

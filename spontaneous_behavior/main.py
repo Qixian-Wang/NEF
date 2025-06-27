@@ -1,76 +1,130 @@
-from NEF.spontaneous_behavior.utils import *
+from utils import *
 from model_stdp import Model
+import os
+from mpi4py import MPI
+import numpy as np
+import matplotlib.pyplot as plt
 
-defaultclock.dt = 1 * ms
-groups_per_row = 8
-n_groups = groups_per_row ** 2
-neuron_per_group = 10
-num_catagoty = 4
-columns = [list(range(c, n_groups, groups_per_row)) for c in range(groups_per_row)]
-block1 = [start + offset for start in range(0, 32, 8) for offset in range(2)]
-block2 = [start + offset for start in range(4, 32, 8) for offset in range(2)]
-block3 = [start + offset for start in range(32, 64, 8) for offset in range(2)]
-block4 = [start + offset for start in range(36, 64, 8) for offset in range(2)]
-# channel_list = [block1+block4, block2+block3, block1+block3, block2+block4]
-channel_list = [block1+block2+block3, block1+block2+block4, block1+block3+block4, block2+block3+block4]
+from mea_layout import generate_layout
 
-gmax = 0.6
-noise_amp = 30
-connectivity = 0.1
-taupre = 500
-taupost = 500
-transmitter_leakage = 0.5
+
+defaultclock.dt = 2 * ms
+n_groups = 64
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
+
+figure_save_path = "plots"
+if rank == 0:
+    os.makedirs(figure_save_path, exist_ok=True)
+    print("start", flush=True)
+data_save_path = "data"
+if rank == 0:
+    os.makedirs(data_save_path, exist_ok=True)
+
+comm.Barrier()
+
+# random select channel
+channel_list = []
+pre_training_channel_list = []
+num_class = rank + 4
+for i in range(num_class):
+    rng = np.random.default_rng(i)
+    pattern = rng.choice(n_groups, size=(int(n_groups/num_class)))
+    channel_list.append(pattern)
+    pre_training_channel_list.append(pattern)
+
+# parameters
+gmax = 5
+noise_amp = 20
+connectivity = 0.9
+tau_noise = 5
+distance_factor = 400
+
+taupre = 300
+taupost = 400
+dApre = 0.1
+transmitter_leakage = 0
 transmitter_restoration = 600
 
-model = Model(hebbian_lr=1e-3, refractory=50, sigma_i=noise_amp,
+# neuron and electrodelayout
+layout = generate_layout(height=1600,
+                           electrode_t=64,
+                           electrode_b=64,
+                           electrode_per_row_b=8,
+                           electrode_per_row_t=8,
+                           num_neuron=1000,
+                           spacing=100,
+                           plot_result=False)
+
+# model
+model = Model(hebbian_lr=1e-2, 
+              refractory=10,  
+              sigma_noise=noise_amp,
               connectivity=connectivity,
-              groups_per_row=groups_per_row,
-              n_per_group=neuron_per_group,
               taupre=taupre,
               taupost=taupost,
+              dApre=dApre,
+              tau_noise=tau_noise,
               transmitter_leakage=transmitter_leakage,
               transmitter_restoration=transmitter_restoration,
+              distance_factor=distance_factor,
               stimulation_voltage=80,
               stimulation_frequency=6,
+              layout=layout,
               gmax=gmax)
-time_spon = 10
-model.train(duration=time_spon)
 
+def execute_training_sequence(model, sequence, channel_list, pre_training_channel_list):
+    training_start_time_list = []
+    current_time = 0
+    i = 0
 
-iteration = 20
-for iter in range(iteration):
-    for channel in channel_list:
-        model.set_mode('selected', channel, freqeuncy=6)
-        model.train(duration=0.5)
-        model.set_mode('spontaneous', channel, freqeuncy=4)
-        model.train(duration=0.5)
-    print(f"finish iter {iter}")
+    while i < len(sequence):
+        mode = sequence[i][0]
+        value = int(sequence[i][1])
+        i += 1
+        
+        if mode == "spontaneous":
+            model.set_mode('spontaneous', None, freqeuncy=8)
+            model.train(duration=value)
+            current_time += value
+            
+        elif mode == "pretrain":
+            for iter in range(value):
+                for channel in pre_training_channel_list:
+                    model.set_mode('selected', channel, freqeuncy=20)
+                    model.train(duration=1)
+                    model.set_mode('spontaneous', channel, freqeuncy=4)
+                    model.train(duration=1)
+            current_time += 2 * value * len(pre_training_channel_list)
+                    
+        elif mode == "train":
+            for iter in range(int(value)):
+                for channel in channel_list:
+                    model.set_mode('selected', channel, freqeuncy=20)
+                    model.train(duration=0.5)
+                    model.set_mode('spontaneous', channel, freqeuncy=4)
+                    model.train(duration=1.5)
+            training_start_time_list.append(current_time)
+            current_time += 2 * value * len(channel_list)
 
-for iter in range(100):
-    for channel in [block1, block2, block3, block4]:
-        model.set_mode('selected', channel, freqeuncy=15)
-        model.train(duration=0.5)
-        model.set_mode('spontaneous', channel, freqeuncy=6)
-        model.train(duration=0.5)
+    return training_start_time_list
 
-for iter in range(100):
-    for channel in [block1+block2, block2+block4, block3+block1, block4+block3]:
-        model.set_mode('selected', channel, freqeuncy=15)
-        model.train(duration=0.5)
-        model.set_mode('spontaneous', channel, freqeuncy=6)
-        model.train(duration=0.5)
+# training_sequence = [("spontaneous", "1000"), ("train", "20"), ("pretrain", "200"), ("train", "20"), ("pretrain", "200"), 
+#                      ("train", "20"), ("pretrain", "200"), ("train", "20"), ("spontaneous", "1000"), ("train", "20"), ("spontaneous", "1000"), ("train", "20"),
+#                      ("spontaneous", "1000"), ("train", "20"), ("spontaneous", "1000"), ("train", "20"), ("spontaneous", "1000"), ("train", "20")]
 
-iteration = 20
-for iter in range(iteration):
-    for channel in channel_list:
-        model.set_mode('selected', channel, freqeuncy=6)
-        model.train(duration=0.5)
-        model.set_mode('spontaneous', channel, freqeuncy=4)
-        model.train(duration=0.5)
-    print(f"finish iter {iter}")
+# training_sequence = [("spontaneous", "1000"), ("train", "20"), ("pretrain", "200"), ("train", "20"), ("pretrain", "200"), 
+#                      ("train", "20"), ("pretrain", "200"), ("train", "20"), ("pretrain", "200"), ("train", "20")]
+
+training_sequence = [("spontaneous", "50"), ("train", "5")]
+
+training_start_time_list = execute_training_sequence(model, training_sequence, channel_list, pre_training_channel_list)
+print(f"rank:{rank} training_start_time_list: {training_start_time_list}", flush=True)
 
 spike_time, group_index = process_spikes(model)
-np.save('spike_i3.npy', group_index)
-np.save('spike_t3.npy', spike_time)
+np.save(os.path.join(data_save_path, f'spike_i_rank={rank}.npy'), group_index)
+np.save(os.path.join(data_save_path, f'spike_t_rank={rank}.npy'), spike_time)
 
-plot_figures(model, spike_time, group_index, n_groups=n_groups, n_per_group=neuron_per_group)
+plot_figures(rank, model, spike_time, group_index, n_groups=64, figure_save_path=figure_save_path)
