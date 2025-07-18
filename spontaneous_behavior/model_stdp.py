@@ -35,15 +35,15 @@ class Model:
         taupre = taupre * ms
         taupost = taupost * ms
         dApre = 0.1
-        dApost = -dApre * 0.95
+        dApost = -dApre * 0.8
         dApost *= gmax
         dApre *= gmax
         U = transmitter_leakage  # now set to 0 -> no transmitter leakage
         tau_rec = transmitter_restoration * ms
 
         # Homustatic plasticity: ref: https://brian2.readthedocs.io/en/stable/examples/synapses.spike_based_homeostasis.html
-        dw_plus = 0.1
-        dw_minus = 0.1
+        dw_plus = 0.001
+        dw_minus = 0.001
 
         stdp = '''
             w : 1
@@ -148,7 +148,7 @@ class Model:
         )
         self.app['S2'].gmax = gmax
         mean = 0
-        sigma = 0.1
+        sigma = 1
         self.app['S2'].w = clip(np.random.normal(loc=mean, scale=sigma, size=len(self.app['S2'].w)), 0, gmax)
         self.app['S2'].lr = hebbian_lr
         self.app['S2'].taupre = taupre

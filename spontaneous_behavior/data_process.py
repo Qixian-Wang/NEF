@@ -13,7 +13,7 @@ from sklearn.metrics import silhouette_score, davies_bouldin_score
 num_data = 8
 start_time_list = [None] * num_data
 start_time_list[0] = [1000, 2760, 4520, 6280, 8040]
-start_time_list[1] = [1000, 3200, 5400, 7600, 9800, 12000, 14200, 16400, 18600]
+start_time_list[1] = [1000, 3200, 5400, 7600, 9800]
 start_time_list[2] = [1000, 3640, 6280, 8920, 11560, 14200, 16840, 19480, 22120]
 start_time_list[3] = [1000, 4080, 7160, 10240, 13320, 16400, 19480, 22560, 25640]
 start_time_list[4] = [1000, 4520, 8040, 11560, 15080, 18600, 22120, 25640, 29160]
@@ -44,10 +44,10 @@ for data_set in range(num_data):
         rates_sm = rate_list[iteration][:, :duration*10]
 
         rates_sm = rates_sm.reshape(rates_sm.shape[0], rates_sm.shape[1] // 20, 20)
-        no_stimulation_period = rates_sm[:64, :, :]
+        no_stimulation_period = rates_sm[64:, :, 5:]
         rates_sm = no_stimulation_period.reshape(rates_sm.shape[0], -1)
 
-        segmented = rates_sm.reshape(64, trail, 20)
+        segmented = rates_sm.reshape(64, trail, 15)
         segmented = segmented.transpose(1, 0, 2)
         segmented = segmented.reshape(trail, -1)
 

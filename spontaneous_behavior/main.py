@@ -40,10 +40,10 @@ gmax = 5
 noise_amp = 20
 connectivity = 0.9
 tau_noise = 5
-distance_factor = 400
+distance_factor = 200
 
-taupre = 300
-taupost = 400
+taupre = 100
+taupost = 300
 dApre = 0.1
 transmitter_leakage = 0
 transmitter_restoration = 600
@@ -60,7 +60,7 @@ layout = generate_layout(height=1600,
 
 # model
 model = Model(hebbian_lr=1e-2, 
-              refractory=10,  
+              refractory=30,  
               sigma_noise=noise_amp,
               connectivity=connectivity,
               taupre=taupre,
@@ -93,7 +93,7 @@ def execute_training_sequence(model, sequence, channel_list, pre_training_channe
         elif mode == "pretrain":
             for iter in range(value):
                 for channel in pre_training_channel_list:
-                    model.set_mode('selected', channel, freqeuncy=20)
+                    model.set_mode('selected', channel, freqeuncy=10)
                     model.train(duration=1)
                     model.set_mode('spontaneous', channel, freqeuncy=4)
                     model.train(duration=1)
@@ -102,10 +102,10 @@ def execute_training_sequence(model, sequence, channel_list, pre_training_channe
         elif mode == "train":
             for iter in range(int(value)):
                 for channel in channel_list:
-                    model.set_mode('selected', channel, freqeuncy=20)
-                    model.train(duration=0.5)
+                    model.set_mode('selected', channel, freqeuncy=10) # original 20
+                    model.train(duration=1)
                     model.set_mode('spontaneous', channel, freqeuncy=4)
-                    model.train(duration=1.5)
+                    model.train(duration=1)
             training_start_time_list.append(current_time)
             current_time += 2 * value * len(channel_list)
 
@@ -115,10 +115,10 @@ def execute_training_sequence(model, sequence, channel_list, pre_training_channe
 #                      ("train", "20"), ("pretrain", "200"), ("train", "20"), ("spontaneous", "1000"), ("train", "20"), ("spontaneous", "1000"), ("train", "20"),
 #                      ("spontaneous", "1000"), ("train", "20"), ("spontaneous", "1000"), ("train", "20"), ("spontaneous", "1000"), ("train", "20")]
 
-# training_sequence = [("spontaneous", "1000"), ("train", "20"), ("pretrain", "200"), ("train", "20"), ("pretrain", "200"), 
-#                      ("train", "20"), ("pretrain", "200"), ("train", "20"), ("pretrain", "200"), ("train", "20")]
+training_sequence = [("spontaneous", "1000"), ("train", "20"), ("pretrain", "200"), ("train", "20"), ("pretrain", "200"), 
+                     ("train", "20"), ("pretrain", "200"), ("train", "20"), ("pretrain", "200"), ("train", "20")]
 
-training_sequence = [("spontaneous", "50"), ("train", "5")]
+# training_sequence = [("spontaneous", "300"), ("train", "5")]
 
 training_start_time_list = execute_training_sequence(model, training_sequence, channel_list, pre_training_channel_list)
 print(f"rank:{rank} training_start_time_list: {training_start_time_list}", flush=True)
