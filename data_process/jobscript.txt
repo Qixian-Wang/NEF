@@ -1,0 +1,21 @@
+#!/bin/bash
+
+#SBATCH -J rc_pretrain_mpi           # Job name
+#SBATCH -o rc_pretrain_mpi.o%j       # Name of stdout output file
+#SBATCH -e rc_pretrain_mpi.e%j       # Name of stderr error file
+
+#SBATCH -p development          # Queue (partition) name
+#SBATCH -N 1             # Total # of nodes
+#SBATCH -n 6           # Total # of mpi tasks
+#SBATCH -t 02:00:00        # Run time (hh:mm:ss)
+#SBATCH --mail-type=all    # Send email at begin and end of job
+#SBATCH -A IBN22011       # Project/Allocation name (req'd if you have more than 1)
+#SBATCH --mail-user=qixianw2@illinois.edu
+
+module load gcc/13.2.0
+
+module list
+pwd
+date
+
+ibrun python3 /scratch1/10197/qxwang/pretraining_network/main.py
